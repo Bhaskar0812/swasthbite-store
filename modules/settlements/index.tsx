@@ -137,6 +137,26 @@ export default function FinanceScreen() {
     { currentCycle: 0, totalTillNow: 0, today: 0 },
   );
 
+  // Expense summary
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const weekStart = new Date(now);
+  weekStart.setHours(0, 0, 0, 0);
+  weekStart.setDate(now.getDate() - now.getDay());
+
+  const expenseSummary = expenses.reduce(
+    (acc: { weekly: number; monthly: number; overall: number }, item: any) => {
+      const amount = Math.abs(toAmount(item?.amount));
+      const date = parseDate(item?.date || item?.created_at || item?.createdAt);
+
+      acc.overall += amount;
+      if (date && date >= monthStart) acc.monthly += amount;
+      if (date && date >= weekStart) acc.weekly += amount;
+      return acc;
+    },
+    { weekly: 0, monthly: 0, overall: 0 },
+  );
+
   // Handlers
   const handleDownloadPDF = async (settlementId: string) => {
     try {
@@ -182,6 +202,18 @@ export default function FinanceScreen() {
             <StatCard label="Today" value={formatMoney(ledgerEarningSummary.today)} tone="amber" />
           </View>
           <Text className="text-[10px] text-textTertiary mt-2">Cycle start: {formatDate(cycleStart)}</Text>
+        </View>
+      );
+    }
+    if (tab === 'expenses') {
+      return (
+        <View className="mx-4 mb-3 mt-2 bg-white rounded-xl p-3">
+          <Text className="text-xs text-textSecondary mb-2">Expense Summary</Text>
+          <View className="flex-row gap-2">
+            <StatCard label="This Week" value={formatMoney(expenseSummary.weekly)} tone="amber" />
+            <StatCard label="This Month" value={formatMoney(expenseSummary.monthly)} tone="blue" />
+            <StatCard label="Overall" value={formatMoney(expenseSummary.overall)} tone="green" />
+          </View>
         </View>
       );
     }
@@ -510,6 +542,21 @@ export default function FinanceScreen() {
             </TouchableOpacity>
           ))}
         </View>
+
+        {tab === 'expenses' && (
+          <View className="mt-2">
+            <TouchableOpacity
+              onPress={() => router.push('/expenses')}
+              className="self-end px-3 py-2 rounded-lg flex-row items-center"
+              style={{ backgroundColor: Colors.primary + '15' }}
+            >
+              <Ionicons name="add-circle-outline" size={14} color={Colors.primary} style={{ marginRight: 6 }} />
+              <Text className="text-xs font-semibold" style={{ color: Colors.primary }}>
+                Add Expense
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
 
       {/* Content */}
