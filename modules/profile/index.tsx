@@ -11,6 +11,20 @@ export default function ProfileScreen() {
   const logout = useAuthStore((s) => s.logout);
   const unreadCount = useNotificationStore((s) => s.unreadCount);
 
+  const handleCopyStoreId = async () => {
+    const storeId = user?._id || '';
+    if (!storeId) {
+      Alert.alert('Error', 'Store ID not found');
+      return;
+    }
+    Alert.alert('Your Store ID', storeId, [
+      {
+        text: 'Close',
+        style: 'cancel',
+      },
+    ]);
+  };
+
   const handleLogout = () => {
     Alert.alert('Logout', 'Are you sure you want to logout?', [
       { text: 'Cancel', style: 'cancel' },
@@ -76,6 +90,20 @@ export default function ProfileScreen() {
           {user?.phone_number && (
             <Text className="text-sm text-textTertiary mt-0.5">{user.phone_number}</Text>
           )}
+
+          {/* Store ID with Copy Button */}
+          {user?._id && (
+            <TouchableOpacity
+              onPress={handleCopyStoreId}
+              className="mt-3 flex-row items-center justify-center px-3 py-2 rounded-lg"
+              style={{ backgroundColor: Colors.info + '15' }}
+            >
+              <Ionicons name="copy-outline" size={14} color={Colors.info} />
+              <Text className="text-xs font-semibold ml-1.5" style={{ color: Colors.info }}>
+                Store ID: {user._id.substring(0, 8)}...
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Menu Items */}
@@ -90,6 +118,7 @@ export default function ProfileScreen() {
           <MenuItem icon="card-outline" label="Bank Account" route="/bank-account" color={Colors.success} />
           <MenuItem icon="pricetag-outline" label="Promotions" route="/promotions" color={Colors.accent} />
           <MenuItem icon="return-down-back-outline" label="Refunds" route="/refunds" color={Colors.warning} />
+          <MenuItem icon="receipt-outline" label="Expenses" route="/expenses" color={Colors.info} />
           <MenuItem icon="speedometer-outline" label="Store Charges" route="/charges" color={Colors.info} />
           <MenuItem icon="time-outline" label="Store Hours" route="/store-hours" color={Colors.info} />
         </View>

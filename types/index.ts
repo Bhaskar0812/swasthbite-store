@@ -80,6 +80,7 @@ export type DashboardOrder = {
     pincode?: string;
   };
   order_id?: string;
+  delivery_index?: number;
   quantity?: number;
 };
 
@@ -109,23 +110,55 @@ export type Package = {
 
 export type Settlement = {
   _id: string;
+  store?: string;
   period_start: string;
   period_end: string;
-  total_orders: number;
-  total_amount: number;
-  commission: number;
-  penalties: number;
+  total_orders?: number;
+  total_amount?: number;
+  gross_amount?: number;
+  base_gross_amount?: number;
+  store_offer_deductions?: number;
+  promo_deductions?: number;
+  platform_fee_collected?: number;
+  commission?: number;
+  commission_rate?: number;
+  commission_deductions?: number;
+  penalty_deductions?: number;
+  delivery_deductions?: number;
+  refund_deductions?: number;
+  promotional_wallet_deductions?: number;
+  other_deductions?: number;
+  penalties?: number;
   net_amount: number;
-  status: "pending" | "processing" | "completed";
+  carry_forward?: number;
+  payable_amount?: number;
+  cash_upi_direct_payment_bulk_orders?: number;
+  status?:
+    | "pending"
+    | "processing"
+    | "completed"
+    | "generated"
+    | "approved"
+    | "settled"
+    | "on_hold";
   paid_at?: string;
+  settled_at?: string;
+  settled_amount?: number;
 };
 
 export type Penalty = {
   _id: string;
-  type: string;
+  type?: string;
+  reason?: string;
+  description?: string;
+  status?: string;
+  order?: any;
+  order_value?: number;
+  penalty_percentage?: number;
   amount: number;
-  reason: string;
-  created_at: string;
+  created_at?: string;
+  createdAt?: string;
+  resolved_at?: string;
   settlement?: string;
 };
 

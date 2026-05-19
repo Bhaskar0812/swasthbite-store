@@ -14,9 +14,11 @@ export default function FinanceScreen() {
   const [ledger, setLedger] = useState<any[]>([]);
   const [expenses, setExpenses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
+  // Fetch all data
   const fetchAll = useCallback(async () => {
-    setLoading(true);
     try {
       const [sRes, pRes, lRes, eRes] = await Promise.all([
         storeService.getSettlements(),
@@ -28,109 +30,400 @@ export default function FinanceScreen() {
       setPenalties(pRes.data?.penalties || pRes.data || []);
       setLedger(lRes.data?.entries || lRes.data?.ledger || lRes.data || []);
       setExpenses(eRes.data?.expenses || eRes.data || []);
-    } catch { } finally {
+    } catch (err) {
+      console.error('Finance fetch error:', err);
+    } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
-  useEffect(() => { fetchAll(); }, []);
+  useEffect(() => {
+    fetchAll();
+  }, [fetchAll]);
 
-  const renderSettlement = ({ item }: { item: Settlement }) => (
-    <View className="bg-white rounded-xl p-4 mb-3 mx-4">
-      <View className="flex-row justify-between items-center mb-2">
-        <Text className="text-sm font-bold text-textPrimary">
-          {new Date(item.period_start).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} -{' '}
-          {new Date(item.period_end).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+  // Utilities
+  const toAmount = (value: any) => {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : 0;
+  };
+
+  const formatMoney = (value: number) =>
+    `₹${toAmount(value).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+
+  const parseDate = (value: any) => {
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  };
+
+  const formatDate = (value: any) => {
+    const date = parseDate(value);
+    if (!date) return '—';
+    return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  };
+
+  const formatDateTime = (value: any) => {
+    const date = parseDate(value);
+    if (!date) return '—';
+    return `${date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} • ${date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+  };
+
+  const prettyType = (value: string) =>
+    String(value || 'entry')
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (ch) => ch.toUpperCase());
+
+  // Settlement processing
+  const sortedSettlements = [...settlements]
+    .sort(
+      (a, b) =>
+        (parseDate(b.period_end)?.getTime() || 0) -
+        (parseDate(a.period_end)?.getTime() || 0),
+    )
+    .filter((item, index, array) => {
+      if (!item._id) return true;
+      return index === array.findIndex((s) => s._id === item._id);
+    });
+
+  const cycleStart = (() => {
+    const latest = sortedSettlements[0];
+    const latestEnd = parseDate(latest?.period_end);
+    if (latestEnd) {
+      const start = new Date(latestEnd);
+      start.setDate(start.getDate() + 1);
+      start.setHours(0, 0, 0, 0);
+      return start;
+    }
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  })();
+
+  // Ledger summary
+  const todayKey = new Date().toDateString();
+  const ledgerEarningSummary = ledger.reduce(
+    (acc: any, item) => {
+      const amount = Math.abs(toAmount(item?.amount));
+      const direction = String(item?.direction || '').toLowerCase() === 'out' ? 'out' : 'in';
+      if (direction !== 'in') return acc;
+
+      const date = parseDate(item?.created_at || item?.date);
+      acc.totalTillNow += amount;
+      if (date && date >= cycleStart) acc.currentCycle += amount;
+      if (date && date.toDateString() === todayKey) acc.today += amount;
+      return acc;
+    },
+    { currentCycle: 0, totalTillNow: 0, today: 0 },
+  );
+
+  // Handlers
+  const handleDownloadPDF = async (settlementId: string) => {
+    try {
+      setDownloadingId(settlementId);
+      await storeService.downloadSettlementPDF(settlementId);
+      console.log('PDF downloaded:', settlementId);
+    } catch (err) {
+      console.error('PDF download error:', err);
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  // UI Components
+  const StatCard = ({ label, value, tone }: { label: string; value: string; tone?: 'green' | 'blue' | 'amber' }) => {
+    const styles =
+      tone === 'blue'
+        ? { bg: '#EFF6FF', color: '#1D4ED8' }
+        : tone === 'amber'
+          ? { bg: '#FFF7ED', color: '#C2410C' }
+          : { bg: '#ECFDF5', color: '#047857' };
+
+    return (
+      <View className="flex-1 rounded-xl p-3" style={{ backgroundColor: styles.bg }}>
+        <Text className="text-[11px]" style={{ color: Colors.textSecondary }}>
+          {label}
         </Text>
-        <View
-          className="px-2.5 py-1 rounded-full"
-          style={{
-            backgroundColor:
-              item.status === 'completed' ? Colors.success + '15' : Colors.warning + '15',
-          }}
-        >
-          <Text
-            className="text-xs font-semibold capitalize"
-            style={{ color: item.status === 'completed' ? Colors.success : Colors.warning }}
+        <Text className="text-base font-bold mt-1" style={{ color: styles.color }}>
+          {value}
+        </Text>
+      </View>
+    );
+  };
+
+  const renderSummaryHeader = () => {
+    if (tab === 'ledger') {
+      return (
+        <View className="mx-4 mb-3 mt-2 bg-white rounded-xl p-3">
+          <Text className="text-xs text-textSecondary mb-2">Earnings Summary</Text>
+          <View className="flex-row gap-2">
+            <StatCard label="Current Cycle" value={formatMoney(ledgerEarningSummary.currentCycle)} tone="blue" />
+            <StatCard label="Till Now" value={formatMoney(ledgerEarningSummary.totalTillNow)} tone="green" />
+            <StatCard label="Today" value={formatMoney(ledgerEarningSummary.today)} tone="amber" />
+          </View>
+          <Text className="text-[10px] text-textTertiary mt-2">Cycle start: {formatDate(cycleStart)}</Text>
+        </View>
+      );
+    }
+    return null;
+  };
+
+  const renderSettlement = ({ item }: { item: Settlement }) => {
+    const gross = toAmount((item as any)?.gross_amount);
+    const net = toAmount(item.net_amount);
+    const payable = toAmount((item as any)?.payable_amount);
+    const settled = toAmount((item as any)?.settled_amount);
+    const carryFwd = toAmount((item as any)?.carry_forward);
+    const penaltyDed = toAmount((item as any)?.penalty_deductions);
+    const commissionDed = toAmount((item as any)?.commission_deductions);
+    const deliveryDed = toAmount((item as any)?.delivery_deductions);
+    const refundDed = toAmount((item as any)?.refund_deductions);
+    const promoDed = toAmount((item as any)?.promotional_wallet_deductions);
+    const otherDed = toAmount((item as any)?.other_deductions);
+    const cashUpiAdj = toAmount((item as any)?.cash_upi_direct_payment_bulk_orders);
+    const totalDed = penaltyDed + commissionDed + deliveryDed + refundDed + promoDed + otherDed + cashUpiAdj;
+
+    const status = String((item as any)?.status || '').toLowerCase();
+    const isClosed = ['completed', 'settled'].includes(status);
+
+    return (
+      <View className="bg-white rounded-xl overflow-hidden mb-3 mx-4" style={{ borderWidth: 1, borderColor: '#e5e7eb' }}>
+        {/* Header */}
+        <View className="bg-slate-50 p-4 flex-row justify-between items-center border-b border-slate-100">
+          <View className="flex-1">
+            <Text className="text-sm font-bold text-textPrimary">
+              {formatDate(item.period_start)} - {formatDate(item.period_end)}
+            </Text>
+            <Text className="text-xs text-textTertiary mt-0.5">{toAmount((item as any)?.total_orders || 0)} orders</Text>
+          </View>
+          <View className="flex-col items-end gap-1">
+            <View
+              className="px-2.5 py-1 rounded-full"
+              style={{
+                backgroundColor: isClosed ? Colors.success + '15' : Colors.warning + '15',
+              }}
+            >
+              <Text
+                className="text-xs font-semibold capitalize"
+                style={{
+                  color: isClosed ? Colors.success : Colors.warning,
+                }}
+              >
+                {prettyType(status)}
+              </Text>
+            </View>
+            {settled > 0 && (
+              <Text className="text-[10px] text-textTertiary">Settled: {formatMoney(settled)}</Text>
+            )}
+          </View>
+        </View>
+
+        {/* Financial Breakdown */}
+        <View className="p-4">
+          {/* Gross */}
+          <View className="flex-row justify-between items-center mb-2">
+            <Text className="text-sm text-textSecondary">Gross Order Value</Text>
+            <Text className="text-sm font-semibold text-textPrimary">{formatMoney(gross)}</Text>
+          </View>
+
+          {/* Deductions Breakdown */}
+          {totalDed > 0 && (
+            <View className="mb-2 bg-red-50 rounded-lg p-2">
+              <Text className="text-xs font-semibold text-red-700 mb-1">Deductions: -{formatMoney(totalDed)}</Text>
+              {commissionDed > 0 && (
+                <View className="flex-row justify-between ml-2 mb-0.5">
+                  <Text className="text-xs text-textSecondary">Commission</Text>
+                  <Text className="text-xs text-red-700">-{formatMoney(commissionDed)}</Text>
+                </View>
+              )}
+              {penaltyDed > 0 && (
+                <View className="flex-row justify-between ml-2 mb-0.5">
+                  <Text className="text-xs text-textSecondary">Penalties</Text>
+                  <Text className="text-xs text-red-700">-{formatMoney(penaltyDed)}</Text>
+                </View>
+              )}
+              {deliveryDed > 0 && (
+                <View className="flex-row justify-between ml-2 mb-0.5">
+                  <Text className="text-xs text-textSecondary">Delivery</Text>
+                  <Text className="text-xs text-red-700">-{formatMoney(deliveryDed)}</Text>
+                </View>
+              )}
+              {refundDed > 0 && (
+                <View className="flex-row justify-between ml-2 mb-0.5">
+                  <Text className="text-xs text-textSecondary">Refunds</Text>
+                  <Text className="text-xs text-red-700">-{formatMoney(refundDed)}</Text>
+                </View>
+              )}
+              {promoDed > 0 && (
+                <View className="flex-row justify-between ml-2 mb-0.5">
+                  <Text className="text-xs text-textSecondary">Promo Wallet</Text>
+                  <Text className="text-xs text-red-700">-{formatMoney(promoDed)}</Text>
+                </View>
+              )}
+              {cashUpiAdj > 0 && (
+                <View className="flex-row justify-between ml-2 mb-0.5">
+                  <Text className="text-xs text-textSecondary">Cash/UPI Direct</Text>
+                  <Text className="text-xs text-red-700">-{formatMoney(cashUpiAdj)}</Text>
+                </View>
+              )}
+            </View>
+          )}
+
+          {/* Net Amount */}
+          <View className="flex-row justify-between items-center mb-2 p-2 bg-emerald-50 rounded-lg">
+            <Text className="text-sm font-semibold text-textPrimary">Net Amount</Text>
+            <Text className="text-sm font-bold text-success">{formatMoney(net)}</Text>
+          </View>
+
+          {/* Carry Forward */}
+          {carryFwd !== 0 && (
+            <View className="flex-row justify-between items-center mb-2">
+              <Text className="text-sm text-textSecondary">Carry Forward</Text>
+              <Text className={`text-sm font-semibold ${carryFwd > 0 ? 'text-info' : 'text-error'}`}>
+                {carryFwd > 0 ? '+' : ''}{formatMoney(carryFwd)}
+              </Text>
+            </View>
+          )}
+
+          {/* Payable Amount - Highlighted */}
+          <View className="flex-row justify-between items-center p-3 bg-blue-50 rounded-lg border border-blue-200">
+            <Text className="text-sm font-bold text-blue-900">Payable Amount</Text>
+            <Text className="text-lg font-bold text-blue-700">{formatMoney(payable)}</Text>
+          </View>
+        </View>
+
+        {/* Actions */}
+        <View className="border-t border-slate-100 p-3 flex-row gap-2">
+          <TouchableOpacity
+            className="flex-1 py-2.5 px-3 rounded-lg flex-row items-center justify-center"
+            style={{ backgroundColor: Colors.info + '15' }}
+            onPress={() => handleDownloadPDF((item as any)._id)}
+            disabled={downloadingId === (item as any)._id}
           >
-            {item.status}
+            <Ionicons
+              name={downloadingId === (item as any)._id ? 'hourglass' : 'document-outline'}
+              size={14}
+              color={Colors.info}
+              style={{ marginRight: 6 }}
+            />
+            <Text className="text-xs font-semibold" style={{ color: Colors.info }}>
+              {downloadingId === (item as any)._id ? 'Downloading...' : 'PDF'}
+            </Text>
+          </TouchableOpacity>
+          {status === 'approved' && (
+            <TouchableOpacity
+              className="flex-1 py-2.5 px-3 rounded-lg flex-row items-center justify-center"
+              style={{ backgroundColor: Colors.success + '15' }}
+            >
+              <Ionicons name="checkmark-circle-outline" size={14} color={Colors.success} style={{ marginRight: 6 }} />
+              <Text className="text-xs font-semibold" style={{ color: Colors.success }}>
+                Pay
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    );
+  };
+
+  const renderPenalty = ({ item }: { item: Penalty }) => {
+    const reasonKey = String((item as any)?.reason || (item as any)?.type || 'other').toLowerCase();
+    const reasonLabelMap: Record<string, string> = {
+      undelivered_order: 'Undelivered Order',
+      breach: 'Policy Breach',
+      other: 'Other',
+    };
+    const reasonLabel = reasonLabelMap[reasonKey] || prettyType(reasonKey);
+    const status = String((item as any)?.status || '').toLowerCase();
+
+    const order = (item as any)?.order;
+    const orderId = (typeof order === 'string' ? order : order?._id) || (item as any)?.order || '';
+    const orderName =
+      (typeof order === 'object' ? order?.package_name || order?.meal_name || order?.title : '') || '';
+    const customerName = (typeof order === 'object' ? order?.user?.name || order?.user_name : '') || '';
+    const orderHint = orderId ? `Order: #${String(orderId).slice(-6)}` : '';
+
+    const penaltyPct = Number((item as any)?.penalty_percentage || 0);
+    const orderValue = Number((item as any)?.order_value || 0);
+
+    const dateValue =
+      (item as any)?.createdAt ||
+      (item as any)?.created_at ||
+      (item as any)?.resolved_at ||
+      (item as any)?.updatedAt;
+
+    return (
+      <View className="bg-white rounded-xl p-4 mb-3 mx-4">
+        <View className="flex-row justify-between items-start">
+          <View className="flex-1 pr-3">
+            <Text className="text-sm font-bold text-textPrimary">{reasonLabel}</Text>
+            {(item as any)?.description ? (
+              <Text className="text-xs text-textSecondary mt-1" numberOfLines={3}>
+                {(item as any)?.description}
+              </Text>
+            ) : null}
+            {orderName || customerName || orderHint ? (
+              <Text className="text-xs text-textTertiary mt-1" numberOfLines={2}>
+                {[customerName, orderName, orderHint].filter(Boolean).join(' • ')}
+              </Text>
+            ) : null}
+          </View>
+          <View className="items-end">
+            <Text className="text-base font-bold text-error">-{formatMoney(item.amount)}</Text>
+            {status ? (
+              <View className="mt-1 px-2 py-0.5 rounded-full" style={{ backgroundColor: Colors.warning + '15' }}>
+                <Text className="text-[10px] font-semibold capitalize" style={{ color: Colors.warning }}>
+                  {prettyType(status)}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+        {penaltyPct > 0 && (
+          <Text className="text-[10px] text-textTertiary mt-2">
+            {orderValue > 0 ? `Order Value: ${formatMoney(orderValue)} • ${penaltyPct}%` : `Penalty: ${penaltyPct}%`}
+          </Text>
+        )}
+        {dateValue && <Text className="text-[10px] text-textTertiary mt-1">{formatDate(dateValue)}</Text>}
+      </View>
+    );
+  };
+
+  const renderLedger = ({ item }: { item: any }) => {
+    const direction = String(item?.direction || '').toLowerCase() === 'out' ? 'out' : 'in';
+    const amount = toAmount(item?.amount);
+    const iconName = direction === 'in' ? 'arrow-up' : 'arrow-down';
+
+    return (
+      <View className="bg-white rounded-xl p-4 mb-3 mx-4">
+        <View className="flex-row items-center">
+          <View
+            className="w-10 h-10 rounded-full items-center justify-center mr-3"
+            style={{ backgroundColor: direction === 'in' ? Colors.success + '15' : Colors.error + '15' }}
+          >
+            <Ionicons
+              name={iconName as any}
+              size={18}
+              color={direction === 'in' ? Colors.success : Colors.error}
+            />
+          </View>
+          <View className="flex-1 pr-3">
+            <Text className="text-sm font-bold text-textPrimary">{prettyType(item?.type || 'entry')}</Text>
+            <Text className="text-xs text-textSecondary mt-0.5" numberOfLines={3}>
+              {item?.description || 'No description'}
+            </Text>
+          </View>
+          <Text className="text-base font-bold" style={{ color: direction === 'in' ? Colors.success : Colors.error }}>
+            {direction === 'in' ? '+' : '-'}{formatMoney(amount)}
           </Text>
         </View>
-      </View>
-      <View className="flex-row justify-between mt-1">
-        <View>
-          <Text className="text-xs text-textTertiary">Orders</Text>
-          <Text className="text-sm font-semibold text-textPrimary">{item.total_orders}</Text>
-        </View>
-        <View>
-          <Text className="text-xs text-textTertiary">Commission</Text>
-          <Text className="text-sm font-semibold text-error">-₹{item.commission}</Text>
-        </View>
-        <View>
-          <Text className="text-xs text-textTertiary">Net Amount</Text>
-          <Text className="text-sm font-bold text-success">₹{item.net_amount}</Text>
-        </View>
-      </View>
-    </View>
-  );
 
-  const renderPenalty = ({ item }: { item: Penalty }) => (
-    <View className="bg-white rounded-xl p-4 mb-3 mx-4">
-      <View className="flex-row justify-between items-center">
-        <View className="flex-1">
-          <Text className="text-sm font-semibold text-textPrimary">{item.type}</Text>
-          <Text className="text-xs text-textSecondary mt-1">{item.reason}</Text>
+        <View className="flex-row justify-between mt-3 pt-2 border-t border-slate-100">
+          <Text className="text-[11px] text-textTertiary">{formatDateTime(item?.created_at || item?.date)}</Text>
+          <Text className="text-[11px] text-textTertiary">Balance: {formatMoney(item?.balance_after || 0)}</Text>
         </View>
-        <Text className="text-base font-bold text-error">-₹{item.amount}</Text>
       </View>
-      <Text className="text-xs text-textTertiary mt-2">
-        {new Date(item.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-      </Text>
-    </View>
-  );
-
-  const renderLedger = ({ item }: { item: any }) => (
-    <View className="bg-white rounded-xl p-4 mb-3 mx-4 flex-row items-center">
-      <View
-        className="w-10 h-10 rounded-full items-center justify-center mr-3"
-        style={{
-          backgroundColor:
-            item.direction === 'in'
-              ? Colors.success + '15'
-              : Colors.error + '15',
-        }}
-      >
-        <Ionicons
-          name={
-            item.direction === 'in'
-              ? 'arrow-down'
-              : item.type === 'settlement'
-                ? 'checkmark'
-                : item.type === 'penalty'
-                  ? 'warning'
-                  : 'card'
-          }
-          size={18}
-          color={
-            item.direction === 'in' ? Colors.success : Colors.error
-          }
-        />
-      </View>
-      <View className="flex-1">
-        <Text className="text-sm font-semibold text-textPrimary capitalize">{item.type}</Text>
-        <Text className="text-xs text-textSecondary">{item.description}</Text>
-      </View>
-      <Text
-        className="text-sm font-bold"
-        style={{
-          color:
-            item.direction === 'in' ? Colors.success : Colors.error,
-        }}
-      >
-        {item.direction === 'in' ? '+' : '-'}₹{Math.abs(item.amount)}
-      </Text>
-    </View>
-  );
+    );
+  };
 
   const renderExpense = ({ item }: { item: any }) => (
     <View className="bg-white rounded-xl p-4 mb-3 mx-4">
@@ -139,14 +432,13 @@ export default function FinanceScreen() {
           <Text className="text-sm font-semibold text-textPrimary">{item.title}</Text>
           <Text className="text-xs text-textTertiary mt-0.5">{item.category}</Text>
         </View>
-        <Text className="text-base font-bold text-textPrimary">₹{item.amount}</Text>
+        <Text className="text-base font-bold text-textPrimary">{formatMoney(item.amount)}</Text>
       </View>
-      <Text className="text-xs text-textTertiary mt-2">
-        {new Date(item.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-      </Text>
+      <Text className="text-xs text-textTertiary mt-2">{formatDate(item.date)}</Text>
     </View>
   );
 
+  // Tab configuration
   const tabs = [
     { key: 'settlements', label: 'Settlements', icon: 'wallet' },
     { key: 'penalties', label: 'Penalties', icon: 'warning' },
@@ -154,7 +446,7 @@ export default function FinanceScreen() {
     { key: 'expenses', label: 'Expenses', icon: 'card' },
   ] as const;
 
-  const dataMap = { settlements, penalties, ledger, expenses };
+  const dataMap = { settlements: sortedSettlements, penalties, ledger, expenses };
   const renderMap = {
     settlements: renderSettlement,
     penalties: renderPenalty,
@@ -162,37 +454,35 @@ export default function FinanceScreen() {
     expenses: renderExpense,
   };
 
-  return (
-    <SafeAreaView key={tab} className="flex-1 bg-background" edges={['top']}>
-      <View className="px-4 pt-2 pb-3">
-        <View className="flex-row justify-between items-center mb-3">
-          <Text className="text-xl font-bold text-textPrimary">Finance</Text>
-          {tab === 'expenses' && (
-            <TouchableOpacity
-              onPress={() => router.push('/add-expense' as any)}
-              className="bg-primary rounded-lg px-3 py-1.5"
-            >
-              <Text className="text-white text-xs font-semibold">+ Add</Text>
-            </TouchableOpacity>
-          )}
-        </View>
+  const getFinanceItemKey = (item: any, index: number) => {
+    const explicit = item?._id || item?.id || item?.entry_id || item?.txn_id;
+    if (explicit) return String(explicit);
+    return `${tab}-${index}`;
+  };
 
-        <View className="flex-row bg-white rounded-xl p-1">
+  const currentData = dataMap[tab];
+  const renderFunction = renderMap[tab];
+
+  return (
+    <SafeAreaView className="flex-1 bg-slate-50">
+      {/* Tabs */}
+      <View className="bg-white border-b border-slate-200 px-4 py-2">
+        <View className="flex-row gap-1">
           {tabs.map((t) => (
             <TouchableOpacity
               key={t.key}
               onPress={() => setTab(t.key)}
-              className="flex-1 py-2 rounded-lg items-center"
-              style={tab === t.key ? { backgroundColor: Colors.primary } : {}}
+              className={`flex-1 py-3 rounded-lg flex-row items-center justify-center gap-1.5 ${tab === t.key ? 'bg-blue-100' : 'bg-slate-100'
+                }`}
             >
               <Ionicons
                 name={t.icon as any}
-                size={16}
-                color={tab === t.key ? '#fff' : Colors.textTertiary}
+                size={14}
+                color={tab === t.key ? Colors.primary : Colors.textSecondary}
               />
               <Text
-                className="text-[10px] font-semibold mt-0.5"
-                style={{ color: tab === t.key ? '#fff' : Colors.textSecondary }}
+                className={`text-[11px] font-semibold ${tab === t.key ? 'text-blue-700' : 'text-textSecondary'
+                  }`}
               >
                 {t.label}
               </Text>
@@ -201,18 +491,34 @@ export default function FinanceScreen() {
         </View>
       </View>
 
-      <FlatList
-        data={dataMap[tab]}
-        keyExtractor={(item: any) => item._id}
-        renderItem={renderMap[tab] as any}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchAll} colors={[Colors.primary]} />}
-        ListEmptyComponent={
-          <View className="items-center py-20">
-            <Ionicons name="document-outline" size={48} color={Colors.textTertiary} />
-            <Text className="text-textTertiary mt-3">No {tab} found</Text>
-          </View>
-        }
-      />
+      {/* Content */}
+      {loading ? (
+        <View className="flex-1 items-center justify-center">
+          <Text className="text-textSecondary">Loading...</Text>
+        </View>
+      ) : currentData.length === 0 ? (
+        <View className="flex-1 items-center justify-center">
+          <Ionicons name="archive" size={48} color={Colors.textTertiary} />
+          <Text className="text-textSecondary mt-2">No {tab} data</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={currentData as any}
+          renderItem={renderFunction as any}
+          keyExtractor={getFinanceItemKey}
+          ListHeaderComponent={renderSummaryHeader}
+          contentContainerStyle={{ paddingVertical: 8 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                fetchAll();
+              }}
+            />
+          }
+        />
+      )}
     </SafeAreaView>
   );
 }

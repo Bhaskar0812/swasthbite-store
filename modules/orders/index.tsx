@@ -8,15 +8,17 @@ import { router } from 'expo-router';
 import { Colors } from 'constants/theme';
 import { useStoreStore } from 'store/storeStore';
 import type { DashboardOrder } from 'types';
+import { pickImageUrl } from 'utils/image';
 
 
 export default function OrdersScreen() {
-  const { dashboard, loading, fetchDashboard } = useStoreStore();
+  const { dashboard, packages, loading, fetchDashboard, fetchPackages } = useStoreStore();
   const [tab, setTab] = useState<'today' | 'tomorrow'>('today');
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
     fetchDashboard();
+    fetchPackages();
   }, []);
 
   useEffect(() => {
@@ -31,8 +33,39 @@ export default function OrdersScreen() {
 
   const getOrderTitle = (item: DashboardOrder) =>
     normalizeText(item.meal_name) || normalizeText(item.package_name) || 'Order';
-  const getOrderImage = (item: DashboardOrder) =>
-    item.package_image || item.image || item.meal_image || undefined;
+  const getOrderImage = (item: DashboardOrder) => {
+    const direct = pickImageUrl(item, [
+      'package_image',
+      'image',
+      'meal_image',
+      'image_url',
+      'thumbnail',
+      'photo',
+      'media.url',
+      'images',
+      'package.image',
+      'package.image_url',
+      'package.thumbnail',
+      'package.photo',
+      'package.images',
+      'meal.image',
+      'meal.image_url',
+      'item.image',
+      'item.image_url',
+    ]);
+    if (direct) return direct;
+
+    const packageId = String((item as any)?.package_id || (item as any)?.package?._id || '').trim();
+    const packageName = normalizeText(item.package_name || (item as any)?.package?.name);
+
+    const pkg = packages.find((p: any) => {
+      const idMatch = packageId && String(p?._id || '').trim() === packageId;
+      const nameMatch = packageName && normalizeText(p?.name) === packageName;
+      return idMatch || nameMatch;
+    });
+
+    return pickImageUrl(pkg, ['image_url', 'image', 'thumbnail', 'photo', 'media.url', 'images']);
+  };
   const isInstantOrder = (item: DashboardOrder) => item.delivery_mode === 'instant';
   const isDeliveredOrder = (item: DashboardOrder) => {
     const status = String(item.status || '').toLowerCase();

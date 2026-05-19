@@ -122,6 +122,18 @@ export const storeService = {
     const res = await api.get("/store/settlements");
     return res.data;
   },
+  downloadSettlementPDF: async (settlementId: string) => {
+    const res = await api.get(`/store/settlements/${settlementId}/pdf`, {
+      responseType: "blob",
+    });
+    return res;
+  },
+  downloadSettlementExcel: async (settlementId: string) => {
+    const res = await api.get(`/store/settlements/${settlementId}/excel`, {
+      responseType: "blob",
+    });
+    return res;
+  },
 
   // Penalties
   getPenalties: async () => {
@@ -230,8 +242,18 @@ export const storeService = {
     id: string,
     payload: { delivery_index: number; status: string },
   ) => {
-    const res = await api.put(`/store/orders/${id}/delivery-status`, payload);
-    return res.data;
+    try {
+      const res = await api.put(`/store/orders/${id}/delivery-status`, payload);
+      return res.data;
+    } catch (error: any) {
+      // Compatibility fallback for deployments using the older status endpoint.
+      const status = error?.response?.status;
+      if (status === 404 || status === 405) {
+        const res = await api.put(`/store/orders/${id}/status`, payload);
+        return res.data;
+      }
+      throw error;
+    }
   },
   requestOrderPayment: async (
     id: string,

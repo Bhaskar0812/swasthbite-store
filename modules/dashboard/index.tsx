@@ -17,13 +17,15 @@ import { useAuthStore } from 'store/authStore';
 import { Colors } from 'constants/theme';
 import { storeService } from 'services/storeService';
 import type { DashboardOrder } from 'types';
+import { pickImageUrl } from 'utils/image';
 
 export default function DashboardScreen() {
-  const { dashboard, isOnline, loading, fetchDashboard, toggleOnline } = useStoreStore();
+  const { dashboard, packages, isOnline, loading, fetchDashboard, fetchPackages, toggleOnline } = useStoreStore();
   const user = useAuthStore((s) => s.user);
 
   useEffect(() => {
     fetchDashboard();
+    fetchPackages();
   }, []);
 
   const onRefresh = useCallback(() => {
@@ -37,10 +39,42 @@ export default function DashboardScreen() {
 
   const getOrderTitle = (order: DashboardOrder) =>
     normalizeText(order.meal_name) || normalizeText(order.package_name) || 'Order';
-  const getOrderImage = (order: DashboardOrder) =>
-    order.package_image || order.image || order.meal_image || undefined;
+  const getOrderImage = (order: DashboardOrder) => {
+    const direct = pickImageUrl(order, [
+      'package_image',
+      'image',
+      'meal_image',
+      'image_url',
+      'thumbnail',
+      'photo',
+      'media.url',
+      'images',
+      'package.image',
+      'package.image_url',
+      'package.thumbnail',
+      'package.photo',
+      'package.images',
+      'meal.image',
+      'meal.image_url',
+      'item.image',
+      'item.image_url',
+    ]);
+    if (direct) return direct;
+
+    const packageId = String((order as any)?.package_id || (order as any)?.package?._id || '').trim();
+    const packageName = normalizeText(order.package_name || (order as any)?.package?.name);
+
+    const pkg = packages.find((p: any) => {
+      const idMatch = packageId && String(p?._id || '').trim() === packageId;
+      const nameMatch = packageName && normalizeText(p?.name) === packageName;
+      return idMatch || nameMatch;
+    });
+
+    return pickImageUrl(pkg, ['image_url', 'image', 'thumbnail', 'photo', 'media.url', 'images']);
+  };
   const isInstantOrder = (order: DashboardOrder) => order.delivery_mode === 'instant';
   const [updatingOrder, setUpdatingOrder] = useState<string | null>(null);
+  const [statusOverrides, setStatusOverrides] = useState<Record<string, string>>({});
 
   const getInstantCountdown = (order: DashboardOrder) => {
     if (!isInstantOrder(order)) return '';
@@ -79,16 +113,86 @@ export default function DashboardScreen() {
     }
   };
 
-  const updateOrderStatus = async (orderId: string, status: string) => {
-    const key = `${orderId}-${status}`;
+  const resolveOrderApiIds = (order: DashboardOrder) => {
+    const candidates = [
+      (order as any)?.order_id,
+      (order as any)?.subscription_id,
+      (order as any)?.id,
+      order?._id,
+    ]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean);
+
+    return Array.from(new Set(candidates));
+  };
+
+  const resolveDeliveryIndexes = (order: DashboardOrder) => {
+    const raw = [
+      (order as any)?.delivery_index,
+      (order as any)?.current_delivery_index,
+      (order as any)?.next_delivery_index,
+      0,
+    ];
+
+    const normalized = raw
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value >= 0);
+
+    return Array.from(new Set(normalized));
+  };
+
+  const updateOrderStatus = async (order: DashboardOrder, status: string) => {
+    const orderIds = resolveOrderApiIds(order);
+    const deliveryIndexes = resolveDeliveryIndexes(order);
+    const localOrderKey = String((order as any)?._id || orderIds[0] || '').trim();
+
+    if (!orderIds.length) {
+      Alert.alert('Status update failed', 'Order id missing. Please refresh and try again.');
+      return;
+    }
+
+    const key = `${orderIds[0]}-${status}`;
     try {
       setUpdatingOrder(key);
-      await storeService.updateOrderDeliveryStatus(orderId, {
-        delivery_index: 0,
-        status,
-      });
+
+      let updated = false;
+      let lastError: any = null;
+
+      for (const orderId of orderIds) {
+        for (const deliveryIndex of deliveryIndexes) {
+          try {
+            await storeService.updateOrderDeliveryStatus(orderId, {
+              delivery_index: deliveryIndex,
+              status,
+            });
+            updated = true;
+            break;
+          } catch (error: any) {
+            lastError = error;
+          }
+        }
+
+        if (updated) break;
+      }
+
+      if (!updated) {
+        throw lastError || new Error('Unable to update order status');
+      }
+
+      if (localOrderKey) {
+        setStatusOverrides((prev) => ({ ...prev, [localOrderKey]: status }));
+      }
+
       await fetchDashboard();
+      Alert.alert('Updated', 'Order status updated successfully.');
     } catch (error: any) {
+      if (localOrderKey) {
+        setStatusOverrides((prev) => {
+          const next = { ...prev };
+          delete next[localOrderKey];
+          return next;
+        });
+      }
       Alert.alert('Status update failed', error?.response?.data?.message || 'Unable to update order status');
     } finally {
       setUpdatingOrder(null);
@@ -149,163 +253,169 @@ export default function DashboardScreen() {
   );
 
   const OrderItem = ({ order, dateLabel = 'Today' }: { order: DashboardOrder; dateLabel?: string }) => (
-    <TouchableOpacity
-      activeOpacity={0.82}
-      onPress={() => router.push(`/order/${order.order_id || order._id}` as any)}
-      className="rounded-2xl px-4 py-4 mb-3"
-      style={{
-        elevation: 3,
-        shadowColor: '#0F172A',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.08,
-        shadowRadius: 8,
-        borderWidth: 1,
-        borderColor: order.delivery_mode === 'instant' ? '#2563EB' : '#E5E7EB',
-        backgroundColor: order.delivery_mode === 'instant' ? '#EFF6FF' : '#fff',
-      }}
-    >
-      {order.delivery_mode === 'instant' ? (
-        <View
+    (() => {
+      const localOrderKey = String((order as any)?._id || '').trim();
+      const currentStatus = String(statusOverrides[localOrderKey] || order.status || '').toLowerCase();
+      return (
+        <TouchableOpacity
+          activeOpacity={0.82}
+          onPress={() => router.push(`/order/${order.order_id || order._id}` as any)}
+          className="rounded-2xl px-4 py-4 mb-3"
           style={{
-            position: 'absolute',
-            top: 12,
-            right: 16,
-            backgroundColor: '#2563EB',
-            paddingHorizontal: 10,
-            paddingVertical: 4,
-            borderRadius: 999,
-            zIndex: 1,
+            elevation: 3,
+            shadowColor: '#0F172A',
+            shadowOffset: { width: 0, height: 1 },
+            shadowOpacity: 0.08,
+            shadowRadius: 8,
+            borderWidth: 1,
+            borderColor: order.delivery_mode === 'instant' ? '#2563EB' : '#E5E7EB',
+            backgroundColor: order.delivery_mode === 'instant' ? '#EFF6FF' : '#fff',
           }}
         >
-          <Text className="text-[10px] font-bold text-white">Instant</Text>
-        </View>
-      ) : null}
-      <View className="flex-row items-stretch">
-        <View className="w-1.5 rounded-full mr-3" style={{ backgroundColor: Colors.info }} />
-
-        <View className="w-16 mr-3">
-          <View className="w-16 h-16 rounded-2xl overflow-hidden bg-blue-50 items-center justify-center">
-            {getOrderImage(order) ? (
-              <Image
-                source={{ uri: getOrderImage(order) }}
-                style={{ width: '100%', height: '100%' }}
-                resizeMode="cover"
-              />
-            ) : (
-              <Ionicons name="restaurant-outline" size={22} color={Colors.info} />
-            )}
-          </View>
-        </View>
-
-        <View className="flex-1 min-w-0">
-          <View className="flex-row items-start justify-between mb-2">
-            <View className="flex-1 pr-2">
-              <Text className="text-base font-bold text-textPrimary" numberOfLines={2}>
-                {getOrderTitle(order)}
-              </Text>
-              <Text className="text-xs text-textSecondary mt-1" numberOfLines={1}>
-                {order.user_name}
-              </Text>
-            </View>
-
-            <View
-              className="px-3 py-1 rounded-full self-start"
-              style={{ backgroundColor: (order.status === 'delivered' ? Colors.success : Colors.warning) + '15' }}
-            >
-              <Text
-                className="text-[10px] font-bold capitalize"
-                style={{ color: order.status === 'delivered' ? Colors.success : Colors.warning }}
-              >
-                {order.status}
-              </Text>
-            </View>
-          </View>
-
-          <View className="flex-row items-center justify-between mt-1">
-            <View className="flex-row items-center flex-1 pr-2">
-              <Ionicons name="time-outline" size={13} color={Colors.textTertiary} />
-              <Text className="text-xs text-textTertiary ml-1 capitalize" numberOfLines={1}>
-                {order.slot}
-              </Text>
-            </View>
-
-            <View className="flex-row items-center bg-blue-50 rounded-full px-2.5 py-1">
-              <Ionicons name="receipt-outline" size={12} color={Colors.info} />
-              <Text className="text-[10px] font-semibold text-blue-700 ml-1" numberOfLines={1}>
-                {dateLabel}
-              </Text>
-            </View>
-          </View>
-
           {order.delivery_mode === 'instant' ? (
-            <View className="flex-row items-center mt-2 bg-blue-50 rounded-full px-3 py-2">
-              <Ionicons name="timer-outline" size={12} color={Colors.info} />
-              <Text className="text-[10px] font-semibold text-blue-700 ml-1" numberOfLines={1}>
-                {getInstantCountdown(order)}
-              </Text>
+            <View
+              style={{
+                position: 'absolute',
+                top: 12,
+                right: 16,
+                backgroundColor: '#2563EB',
+                paddingHorizontal: 10,
+                paddingVertical: 4,
+                borderRadius: 999,
+                zIndex: 1,
+              }}
+            >
+              <Text className="text-[10px] font-bold text-white">Instant</Text>
             </View>
           ) : null}
+          <View className="flex-row items-stretch">
+            <View className="w-1.5 rounded-full mr-3" style={{ backgroundColor: Colors.info }} />
 
-          {(() => {
-            const address =
-              order.delivery_address?.full_address ||
-              order.delivery_address?.address ||
-              order.address_snapshot?.full_address ||
-              [
-                order.address_snapshot?.workplace_name,
-                order.address_snapshot?.floor,
-                order.address_snapshot?.desk_number,
-                order.address_snapshot?.city,
-              ]
-                .filter(Boolean)
-                .join(', ');
-
-            return address ? (
-              <View className="mt-3 flex-row items-start rounded-xl bg-slate-50 px-3 py-2">
-                <Ionicons name="location-outline" size={14} color={Colors.info} style={{ marginTop: 2 }} />
-                <Text className="text-xs text-textSecondary ml-2 flex-1" numberOfLines={2}>
-                  {address}
-                </Text>
+            <View className="w-16 mr-3">
+              <View className="w-16 h-16 rounded-2xl overflow-hidden bg-blue-50 items-center justify-center">
+                {getOrderImage(order) ? (
+                  <Image
+                    source={{ uri: getOrderImage(order) }}
+                    style={{ width: '100%', height: '100%' }}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <Ionicons name="restaurant-outline" size={22} color={Colors.info} />
+                )}
               </View>
-            ) : null;
-          })()}
-
-          {dashboardNextActions(order.status).length ? (
-            <View className="flex-row flex-wrap mt-3">
-              {dashboardNextActions(order.status).map((action) => {
-                const key = `${order._id}-${action.value}`;
-                return (
-                  <TouchableOpacity
-                    key={key}
-                    onPress={(event) => {
-                      event.stopPropagation?.();
-                      updateOrderStatus(order._id, action.value);
-                    }}
-                    disabled={Boolean(updatingOrder)}
-                    className="mr-2 mb-2 rounded-full px-3 py-2"
-                    style={{
-                      backgroundColor: action.value === 'out_for_delivery' ? '#E3F2FD' : '#E3F2FD',
-                      opacity: updatingOrder ? 0.6 : 1,
-                    }}
-                  >
-                    <Text className="text-xs font-semibold" style={{ color: Colors.info }}>
-                      {action.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
             </View>
-          ) : (
-            String(order.status || '').toLowerCase() === 'out_for_delivery' ? (
-              <Text className="text-xs text-textTertiary mt-3">
-                Delivery partner will mark this order delivered.
-              </Text>
-            ) : null
-          )}
-        </View>
-      </View>
 
-    </TouchableOpacity>
+            <View className="flex-1 min-w-0">
+              <View className="flex-row items-start justify-between mb-2">
+                <View className="flex-1 pr-2">
+                  <Text className="text-base font-bold text-textPrimary" numberOfLines={2}>
+                    {getOrderTitle(order)}
+                  </Text>
+                  <Text className="text-xs text-textSecondary mt-1" numberOfLines={1}>
+                    {order.user_name}
+                  </Text>
+                </View>
+
+                <View
+                  className="px-3 py-1 rounded-full self-start"
+                  style={{ backgroundColor: (currentStatus === 'delivered' ? Colors.success : Colors.warning) + '15' }}
+                >
+                  <Text
+                    className="text-[10px] font-bold capitalize"
+                    style={{ color: currentStatus === 'delivered' ? Colors.success : Colors.warning }}
+                  >
+                    {currentStatus || order.status}
+                  </Text>
+                </View>
+              </View>
+
+              <View className="flex-row items-center justify-between mt-1">
+                <View className="flex-row items-center flex-1 pr-2">
+                  <Ionicons name="time-outline" size={13} color={Colors.textTertiary} />
+                  <Text className="text-xs text-textTertiary ml-1 capitalize" numberOfLines={1}>
+                    {order.slot}
+                  </Text>
+                </View>
+
+                <View className="flex-row items-center bg-blue-50 rounded-full px-2.5 py-1">
+                  <Ionicons name="receipt-outline" size={12} color={Colors.info} />
+                  <Text className="text-[10px] font-semibold text-blue-700 ml-1" numberOfLines={1}>
+                    {dateLabel}
+                  </Text>
+                </View>
+              </View>
+
+              {order.delivery_mode === 'instant' ? (
+                <View className="flex-row items-center mt-2 bg-blue-50 rounded-full px-3 py-2">
+                  <Ionicons name="timer-outline" size={12} color={Colors.info} />
+                  <Text className="text-[10px] font-semibold text-blue-700 ml-1" numberOfLines={1}>
+                    {getInstantCountdown(order)}
+                  </Text>
+                </View>
+              ) : null}
+
+              {(() => {
+                const address =
+                  order.delivery_address?.full_address ||
+                  order.delivery_address?.address ||
+                  order.address_snapshot?.full_address ||
+                  [
+                    order.address_snapshot?.workplace_name,
+                    order.address_snapshot?.floor,
+                    order.address_snapshot?.desk_number,
+                    order.address_snapshot?.city,
+                  ]
+                    .filter(Boolean)
+                    .join(', ');
+
+                return address ? (
+                  <View className="mt-3 flex-row items-start rounded-xl bg-slate-50 px-3 py-2">
+                    <Ionicons name="location-outline" size={14} color={Colors.info} style={{ marginTop: 2 }} />
+                    <Text className="text-xs text-textSecondary ml-2 flex-1" numberOfLines={2}>
+                      {address}
+                    </Text>
+                  </View>
+                ) : null;
+              })()}
+
+              {dashboardNextActions(currentStatus).length ? (
+                <View className="flex-row flex-wrap mt-3">
+                  {dashboardNextActions(currentStatus).map((action) => {
+                    const key = `${order._id}-${action.value}`;
+                    return (
+                      <TouchableOpacity
+                        key={key}
+                        onPress={(event) => {
+                          event.stopPropagation?.();
+                          updateOrderStatus(order, action.value);
+                        }}
+                        disabled={Boolean(updatingOrder)}
+                        className="mr-2 mb-2 rounded-full px-3 py-2"
+                        style={{
+                          backgroundColor: action.value === 'out_for_delivery' ? '#E3F2FD' : '#E3F2FD',
+                          opacity: updatingOrder ? 0.6 : 1,
+                        }}
+                      >
+                        <Text className="text-xs font-semibold" style={{ color: Colors.info }}>
+                          {action.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ) : (
+                currentStatus === 'out_for_delivery' ? (
+                  <Text className="text-xs text-textTertiary mt-3">
+                    Delivery partner will mark this order delivered.
+                  </Text>
+                ) : null
+              )}
+            </View>
+          </View>
+
+        </TouchableOpacity>
+      );
+    })()
   );
 
   return (

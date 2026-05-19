@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Colors } from 'constants/theme';
 import { storeService } from 'services/storeService';
+import { pickImageUrl, resolveImageUrl } from 'utils/image';
 
 const STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
   scheduled: { label: 'Scheduled', color: Colors.textSecondary, bg: '#F3F4F6' },
@@ -204,7 +205,25 @@ export default function StoreOrderDetailScreen() {
     (a, b) => new Date(a).getTime() - new Date(b).getTime(),
   );
 
-  const packageImage = order.image || order.package_image || order.meal_image || undefined;
+  const packageImage = pickImageUrl(order, [
+    'image',
+    'image_url',
+    'package_image',
+    'meal_image',
+    'thumbnail',
+    'photo',
+    'media.url',
+    'images',
+    'package.image',
+    'package.image_url',
+    'package.thumbnail',
+    'package.photo',
+    'package.images',
+    'meal.image',
+    'meal.image_url',
+    'item.image',
+    'item.image_url',
+  ]);
   const orderTitle =
     normalizeText(order.meal_name) || normalizeText(order.package_name) || 'Order';
   const orderSubtitle =
@@ -313,7 +332,7 @@ export default function StoreOrderDetailScreen() {
               ) : null}
             </View>
           </View>
-          {![ 'delivered', 'completed', 'cancelled' ].includes(String(order.status || '').toLowerCase()) ? (
+          {!['delivered', 'completed', 'cancelled'].includes(String(order.status || '').toLowerCase()) ? (
             <TouchableOpacity
               onPress={cancelOrder}
               disabled={updatingKey === 'cancel'}
@@ -352,27 +371,27 @@ export default function StoreOrderDetailScreen() {
                       </View>
                     </View>
 
-                    {delivery.meal_image || packageImage ? (
+                    {pickImageUrl(delivery, ['meal_image', 'image', 'image_url', 'thumbnail', 'photo', 'media.url', 'images']) || packageImage ? (
                       <View className="w-full h-36 rounded-2xl overflow-hidden bg-slate-100 mb-3">
                         <Image
-                          source={{ uri: delivery.meal_image || packageImage }}
+                          source={{ uri: pickImageUrl(delivery, ['meal_image', 'image', 'image_url', 'thumbnail', 'photo', 'media.url', 'images']) || packageImage }}
                           style={{ width: '100%', height: '100%' }}
                           resizeMode="cover"
                         />
                       </View>
                     ) : null}
 
-                            {delivery.delivery_note ? (
-                        <View className="flex-row items-start bg-amber-50 rounded-xl px-3 py-2 mb-3">
-                          <Ionicons name="document-text-outline" size={14} color="#D97706" style={{ marginTop: 2 }} />
-                          <Text className="text-xs text-[#92400E] ml-2 flex-1" numberOfLines={2}>{delivery.delivery_note}</Text>
-                        </View>
-                      ) : null}
+                    {delivery.delivery_note ? (
+                      <View className="flex-row items-start bg-amber-50 rounded-xl px-3 py-2 mb-3">
+                        <Ionicons name="document-text-outline" size={14} color="#D97706" style={{ marginTop: 2 }} />
+                        <Text className="text-xs text-[#92400E] ml-2 flex-1" numberOfLines={2}>{delivery.delivery_note}</Text>
+                      </View>
+                    ) : null}
 
-                      <Text className="text-xs text-textTertiary">
-                        Status updates are managed from the dashboard.
-                      </Text>
-                    </View>
+                    <Text className="text-xs text-textTertiary">
+                      Status updates are managed from the dashboard.
+                    </Text>
+                  </View>
                 );
               })}
             </View>

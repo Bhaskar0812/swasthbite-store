@@ -25,6 +25,7 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "UIBackgroundModes": [
+          "remote-notification",
           "remote-notification"
         ]
       }
@@ -37,6 +38,7 @@
         "backgroundColor": "#3B82F6"
       },
       "permissions": [
+        "POST_NOTIFICATIONS",
         "POST_NOTIFICATIONS"
       ]
     },
@@ -84,6 +86,9 @@
     "owner": "bhaskar0812",
     "runtimeVersion": {
       "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/6e611e21-c6ac-4e42-83ff-bf4b17337b0a"
     }
   }
 }

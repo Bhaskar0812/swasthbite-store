@@ -7,12 +7,14 @@ import {
   Switch,
   RefreshControl,
   TextInput,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useStoreStore } from 'store/storeStore';
 import { Colors } from 'constants/theme';
 import type { MenuItem } from 'types';
+import { pickImageUrl } from 'utils/image';
 
 export default function MenuScreen() {
   const { menuItems, packages, fetchMenuItems, fetchPackages, toggleItemStock, toggleItemInstantAvailability, togglePackage } =
@@ -93,30 +95,43 @@ export default function MenuScreen() {
     </View>
   );
 
-  const renderPackage = ({ item }: { item: any }) => (
-    <View className="bg-white rounded-xl p-4 mb-3 mx-4 flex-row items-center">
-      <View className="flex-1">
-        <Text className="text-base font-semibold text-textPrimary">{item.name}</Text>
-        <Text className="text-sm text-textSecondary mt-1">₹{item.price}</Text>
-        {item.duration_days && (
-          <Text className="text-xs text-textTertiary mt-0.5">
-            {item.duration_days} days • {item.meals_per_day || 1} meals/day
+  const renderPackage = ({ item }: { item: any }) => {
+    const packageImage = pickImageUrl(item, ['image_url', 'image', 'thumbnail', 'thumb', 'photo', 'media.url', 'images']);
+
+    return (
+      <View className="bg-white rounded-xl p-4 mb-3 mx-4 flex-row items-center">
+        {packageImage ? (
+          <View className="w-14 h-14 rounded-xl overflow-hidden bg-slate-100 mr-3">
+            <Image
+              source={{ uri: packageImage }}
+              style={{ width: '100%', height: '100%' }}
+              resizeMode="cover"
+            />
+          </View>
+        ) : null}
+        <View className="flex-1">
+          <Text className="text-base font-semibold text-textPrimary">{item.name}</Text>
+          <Text className="text-sm text-textSecondary mt-1">₹{item.price}</Text>
+          {item.duration_days && (
+            <Text className="text-xs text-textTertiary mt-0.5">
+              {item.duration_days} days • {item.meals_per_day || 1} meals/day
+            </Text>
+          )}
+        </View>
+        <View className="items-center">
+          <Switch
+            value={item.store_selected}
+            onValueChange={() => togglePackage(item._id)}
+            trackColor={{ false: '#E0E0E0', true: Colors.success + '50' }}
+            thumbColor={item.store_selected ? Colors.success : '#9E9E9E'}
+          />
+          <Text className="text-xs mt-0.5" style={{ color: item.store_selected ? Colors.success : Colors.offline }}>
+            {item.store_selected ? 'Active' : 'Off'}
           </Text>
-        )}
+        </View>
       </View>
-      <View className="items-center">
-        <Switch
-          value={item.store_selected}
-          onValueChange={() => togglePackage(item._id)}
-          trackColor={{ false: '#E0E0E0', true: Colors.success + '50' }}
-          thumbColor={item.store_selected ? Colors.success : '#9E9E9E'}
-        />
-        <Text className="text-xs mt-0.5" style={{ color: item.store_selected ? Colors.success : Colors.offline }}>
-          {item.store_selected ? 'Active' : 'Off'}
-        </Text>
-      </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
