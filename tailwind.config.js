@@ -1,0 +1,36 @@
+module.exports = {
+  content: [
+    "./app/**/*.{js,jsx,ts,tsx}",
+    "./components/**/*.{js,jsx,ts,tsx}",
+    "./modules/**/*.{js,jsx,ts,tsx}",
+  ],
+  presets: [require("nativewind/preset")],
+  theme: {
+    extend: {
+      colors: {
+        primary: "#E23744",
+        primaryDark: "#C62828",
+        accent: "#FF6B35",
+        success: "#2E7D32",
+        successLight: "#E8F5E9",
+        warning: "#F57F17",
+        warningLight: "#FFF8E1",
+        info: "#1565C0",
+        infoLight: "#E3F2FD",
+        background: "#F5F5F5",
+        surface: "#FFFFFF",
+        card: "#FFFFFF",
+        textPrimary: "#1A1A2E",
+        textSecondary: "#5A5A6E",
+        textTertiary: "#9E9E9E",
+        muted: "#757575",
+        border: "#E0E0E0",
+        divider: "#F0F0F0",
+        error: "#D32F2F",
+        online: "#4CAF50",
+        offline: "#9E9E9E",
+      },
+    },
+  },
+  plugins: [],
+};

@@ -1,0 +1,199 @@
+import { useEffect, useState, useCallback } from 'react';
+import {
+  View,
+  Text,
+  FlatList,
+  TouchableOpacity,
+  TextInput,
+  Modal,
+  RefreshControl,
+  ActivityIndicator,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
+import { storeService } from 'services/storeService';
+import { Colors } from 'constants/theme';
+import Toast from 'react-native-toast-message';
+import type { Expense } from 'types';
+
+export default function ExpensesScreen() {
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [summary, setSummary] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState({ title: '', amount: '', category: '', notes: '' });
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [eRes, sRes] = await Promise.all([
+        storeService.getExpenses(),
+        storeService.getExpenseSummary(),
+      ]);
+      setExpenses(eRes.data || []);
+      setSummary(sRes.data);
+    } catch { } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchData(); }, []);
+
+  const handleSave = async () => {
+    if (!form.title || !form.amount || !form.category) {
+      Toast.show({ type: 'error', text1: 'Please fill required fields' });
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = { ...form, amount: Number(form.amount), date: new Date().toISOString() };
+      if (editingId) {
+        await storeService.updateExpense(editingId, payload);
+      } else {
+        await storeService.createExpense(payload);
+      }
+      Toast.show({ type: 'success', text1: editingId ? 'Expense updated' : 'Expense added' });
+      setModalVisible(false);
+      setForm({ title: '', amount: '', category: '', notes: '' });
+      setEditingId(null);
+      fetchData();
+    } catch (err: any) {
+      Toast.show({ type: 'error', text1: err?.response?.data?.message || 'Failed' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await storeService.deleteExpense(id);
+      Toast.show({ type: 'success', text1: 'Expense deleted' });
+      fetchData();
+    } catch { }
+  };
+
+  const categories = ['Ingredients', 'Packaging', 'Utilities', 'Salary', 'Rent', 'Marketing', 'Other'];
+
+  return (
+    <SafeAreaView className="flex-1 bg-background">
+      <View className="flex-row items-center px-4 py-3 bg-white border-b border-divider">
+        <TouchableOpacity onPress={() => router.back()} className="mr-3">
+          <Ionicons name="arrow-back" size={24} color={Colors.textPrimary} />
+        </TouchableOpacity>
+        <Text className="text-lg font-bold text-textPrimary flex-1">Expenses</Text>
+        <TouchableOpacity
+          onPress={() => { setEditingId(null); setForm({ title: '', amount: '', category: '', notes: '' }); setModalVisible(true); }}
+          className="bg-primary rounded-lg px-3 py-1.5"
+        >
+          <Text className="text-white text-xs font-semibold">+ Add</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Summary Card */}
+      {summary && (
+        <View className="bg-white mx-4 mt-4 rounded-xl p-4">
+          <Text className="text-sm font-bold text-textPrimary mb-2">Summary</Text>
+          <View className="flex-row justify-between">
+            <View className="items-center flex-1">
+              <Text className="text-lg font-bold text-textPrimary">₹{summary.total || 0}</Text>
+              <Text className="text-xs text-textTertiary">Total</Text>
+            </View>
+            <View className="items-center flex-1">
+              <Text className="text-lg font-bold text-warning">₹{summary.this_month || 0}</Text>
+              <Text className="text-xs text-textTertiary">This Month</Text>
+            </View>
+          </View>
+        </View>
+      )}
+
+      <FlatList
+        data={expenses}
+        keyExtractor={(item) => item._id}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchData} colors={[Colors.primary]} />}
+        contentContainerStyle={{ padding: 16 }}
+        renderItem={({ item }) => (
+          <View className="bg-white rounded-xl p-4 mb-3">
+            <View className="flex-row justify-between items-start">
+              <View className="flex-1">
+                <Text className="text-sm font-semibold text-textPrimary">{item.title}</Text>
+                <Text className="text-xs text-textTertiary mt-0.5">{item.category}</Text>
+                {item.notes && <Text className="text-xs text-textSecondary mt-1">{item.notes}</Text>}
+              </View>
+              <View className="items-end">
+                <Text className="text-base font-bold text-textPrimary">₹{item.amount}</Text>
+                <View className="flex-row mt-1">
+                  <TouchableOpacity
+                    onPress={() => {
+                      setEditingId(item._id);
+                      setForm({ title: item.title, amount: String(item.amount), category: item.category, notes: item.notes || '' });
+                      setModalVisible(true);
+                    }}
+                    className="mr-2"
+                  >
+                    <Ionicons name="create-outline" size={16} color={Colors.info} />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => handleDelete(item._id)}>
+                    <Ionicons name="trash-outline" size={16} color={Colors.error} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+            <Text className="text-xs text-textTertiary mt-2">
+              {new Date(item.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+            </Text>
+          </View>
+        )}
+        ListEmptyComponent={
+          <View className="items-center py-20">
+            <Ionicons name="card-outline" size={48} color={Colors.textTertiary} />
+            <Text className="text-textTertiary mt-3">No expenses recorded</Text>
+          </View>
+        }
+      />
+
+      {/* Add/Edit Modal */}
+      <Modal visible={modalVisible} animationType="slide" transparent>
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="bg-white rounded-t-3xl p-5">
+            <View className="flex-row items-center justify-between mb-4">
+              <Text className="text-lg font-bold text-textPrimary">{editingId ? 'Edit' : 'Add'} Expense</Text>
+              <TouchableOpacity onPress={() => setModalVisible(false)}>
+                <Ionicons name="close" size={24} color={Colors.textTertiary} />
+              </TouchableOpacity>
+            </View>
+
+            <Text className="text-xs font-medium text-textSecondary mb-1">Title</Text>
+            <TextInput className="bg-background border border-border rounded-xl px-4 py-3 text-sm mb-3" value={form.title} onChangeText={(t) => setForm({ ...form, title: t })} placeholder="Expense title" />
+
+            <Text className="text-xs font-medium text-textSecondary mb-1">Amount</Text>
+            <TextInput className="bg-background border border-border rounded-xl px-4 py-3 text-sm mb-3" value={form.amount} onChangeText={(t) => setForm({ ...form, amount: t })} placeholder="0" keyboardType="numeric" />
+
+            <Text className="text-xs font-medium text-textSecondary mb-1">Category</Text>
+            <View className="flex-row flex-wrap mb-3">
+              {categories.map((cat) => (
+                <TouchableOpacity
+                  key={cat}
+                  onPress={() => setForm({ ...form, category: cat })}
+                  className="px-3 py-1.5 rounded-full mr-2 mb-2 border"
+                  style={{ borderColor: form.category === cat ? Colors.primary : Colors.border, backgroundColor: form.category === cat ? Colors.primary + '10' : '#fff' }}
+                >
+                  <Text className="text-xs" style={{ color: form.category === cat ? Colors.primary : Colors.textSecondary }}>{cat}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text className="text-xs font-medium text-textSecondary mb-1">Notes (optional)</Text>
+            <TextInput className="bg-background border border-border rounded-xl px-4 py-3 text-sm mb-4" value={form.notes} onChangeText={(t) => setForm({ ...form, notes: t })} placeholder="Additional notes" multiline />
+
+            <TouchableOpacity onPress={handleSave} disabled={saving} className="bg-primary rounded-xl py-4 items-center">
+              {saving ? <ActivityIndicator color="#fff" /> : <Text className="text-white text-base font-bold">{editingId ? 'Update' : 'Add'} Expense</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
+  );
+}

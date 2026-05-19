@@ -1,0 +1,150 @@
+{
+  "project_info": {
+    "project_number": "579213371783",
+    "project_id": "swasth-bite",
+    "storage_bucket": "swasth-bite.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:579213371783:android:e0413d025e286be10a4b22",
+        "android_client_info": {
+          "package_name": "com.swasthbite.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCLIhLG20HCF6Q0nw-O1pqZ9VBdvPUGJ5g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "579213371783-i1f91pdliiqe926k8mmva4em9dinj9tu.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.swasthbitecustomer.app",
+                "app_store_id": "6761825326"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:579213371783:android:7472a0e42908f9270a4b22",
+        "android_client_info": {
+          "package_name": "com.swasthbite.delivery"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCLIhLG20HCF6Q0nw-O1pqZ9VBdvPUGJ5g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "579213371783-i1f91pdliiqe926k8mmva4em9dinj9tu.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.swasthbitecustomer.app",
+                "app_store_id": "6761825326"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:579213371783:android:f149811511f4ee790a4b22",
+        "android_client_info": {
+          "package_name": "com.swasthbitecustomer.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCLIhLG20HCF6Q0nw-O1pqZ9VBdvPUGJ5g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "579213371783-i1f91pdliiqe926k8mmva4em9dinj9tu.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.swasthbitecustomer.app",
+                "app_store_id": "6761825326"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:579213371783:android:79c1a843ba89693a0a4b22",
+        "android_client_info": {
+          "package_name": "com.swasthbitecutomer.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCLIhLG20HCF6Q0nw-O1pqZ9VBdvPUGJ5g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "579213371783-i1f91pdliiqe926k8mmva4em9dinj9tu.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.swasthbitecustomer.app",
+                "app_store_id": "6761825326"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:579213371783:android:9ed2d5c71e9761720a4b22",
+        "android_client_info": {
+          "package_name": "com.swasthbitestore.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCLIhLG20HCF6Q0nw-O1pqZ9VBdvPUGJ5g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "579213371783-i1f91pdliiqe926k8mmva4em9dinj9tu.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.swasthbitecustomer.app",
+                "app_store_id": "6761825326"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
