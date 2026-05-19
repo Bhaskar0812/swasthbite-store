@@ -1,5 +1,6 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import {
+  Alert,
   View,
   Text,
   ScrollView,
@@ -14,6 +15,7 @@ import { router } from 'expo-router';
 import { useStoreStore } from 'store/storeStore';
 import { useAuthStore } from 'store/authStore';
 import { Colors } from 'constants/theme';
+import { storeService } from 'services/storeService';
 import type { DashboardOrder } from 'types';
 
 export default function DashboardScreen() {
@@ -27,6 +29,97 @@ export default function DashboardScreen() {
   const onRefresh = useCallback(() => {
     fetchDashboard();
   }, []);
+
+  const normalizeText = (value?: string) => {
+    const normalized = String(value || '').trim();
+    return normalized && normalized !== '-' ? normalized : '';
+  };
+
+  const getOrderTitle = (order: DashboardOrder) =>
+    normalizeText(order.meal_name) || normalizeText(order.package_name) || 'Order';
+  const getOrderImage = (order: DashboardOrder) =>
+    order.package_image || order.image || order.meal_image || undefined;
+  const isInstantOrder = (order: DashboardOrder) => order.delivery_mode === 'instant';
+  const [updatingOrder, setUpdatingOrder] = useState<string | null>(null);
+
+  const getInstantCountdown = (order: DashboardOrder) => {
+    if (!isInstantOrder(order)) return '';
+
+    const deadlineAt = order.instant_deadline_at
+      ? new Date(order.instant_deadline_at).getTime()
+      : order.createdAt
+        ? new Date(order.createdAt).getTime() + 60 * 60 * 1000
+        : 0;
+
+    if (!deadlineAt) return 'Instant';
+
+    const remainingMs = Math.max(0, deadlineAt - Date.now());
+    if (remainingMs <= 0) return 'Expired';
+
+    const totalSeconds = Math.floor(remainingMs / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    if (hours > 0) return `${hours}h ${minutes}m left`;
+    if (minutes > 0) return `${minutes}m ${seconds}s left`;
+    return `${seconds}s left`;
+  };
+
+  const dashboardNextActions = (status: string) => {
+    switch (String(status || '').toLowerCase()) {
+      case 'scheduled':
+        return [{ label: 'Mark as Preparing', value: 'preparing' }];
+      case 'preparing':
+        return [{ label: 'Out for Delivery', value: 'out_for_delivery' }];
+      case 'out_for_delivery':
+        return [];
+      default:
+        return [];
+    }
+  };
+
+  const updateOrderStatus = async (orderId: string, status: string) => {
+    const key = `${orderId}-${status}`;
+    try {
+      setUpdatingOrder(key);
+      await storeService.updateOrderDeliveryStatus(orderId, {
+        delivery_index: 0,
+        status,
+      });
+      await fetchDashboard();
+    } catch (error: any) {
+      Alert.alert('Status update failed', error?.response?.data?.message || 'Unable to update order status');
+    } finally {
+      setUpdatingOrder(null);
+    }
+  };
+
+  const isDeliveredOrder = (order: DashboardOrder) => {
+    const status = String(order.status || '').toLowerCase();
+    return ['delivered', 'completed', 'cancelled'].includes(status);
+  };
+
+  const sortOrders = (orders: DashboardOrder[] = []) => {
+    return [...orders].sort((a, b) => {
+      const aRank = isInstantOrder(a) ? 0 : isDeliveredOrder(a) ? 2 : 1;
+      const bRank = isInstantOrder(b) ? 0 : isDeliveredOrder(b) ? 2 : 1;
+      if (aRank !== bRank) return aRank - bRank;
+
+      if (aRank === 0) {
+        const aDeadline = a.instant_deadline_at ? new Date(a.instant_deadline_at).getTime() : 0;
+        const bDeadline = b.instant_deadline_at ? new Date(b.instant_deadline_at).getTime() : 0;
+        return aDeadline - bDeadline;
+      }
+
+      const aCreated = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bCreated = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bCreated - aCreated;
+    });
+  };
+
+  const todayOrders = sortOrders(dashboard?.today_orders || []);
+  const tomorrowOrders = sortOrders(dashboard?.tomorrow_orders || []);
 
   const StatCard = ({
     title,
@@ -55,27 +148,46 @@ export default function DashboardScreen() {
     </TouchableOpacity>
   );
 
-  const OrderItem = ({ order }: { order: DashboardOrder }) => (
+  const OrderItem = ({ order, dateLabel = 'Today' }: { order: DashboardOrder; dateLabel?: string }) => (
     <TouchableOpacity
       activeOpacity={0.82}
-      onPress={() => router.push(`/order/${order._id}` as any)}
-      className="bg-white rounded-2xl px-4 py-4 mb-3"
+      onPress={() => router.push(`/order/${order.order_id || order._id}` as any)}
+      className="rounded-2xl px-4 py-4 mb-3"
       style={{
-        elevation: 2,
+        elevation: 3,
         shadowColor: '#0F172A',
         shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.06,
-        shadowRadius: 6,
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
+        borderWidth: 1,
+        borderColor: order.delivery_mode === 'instant' ? '#2563EB' : '#E5E7EB',
+        backgroundColor: order.delivery_mode === 'instant' ? '#EFF6FF' : '#fff',
       }}
     >
+      {order.delivery_mode === 'instant' ? (
+        <View
+          style={{
+            position: 'absolute',
+            top: 12,
+            right: 16,
+            backgroundColor: '#2563EB',
+            paddingHorizontal: 10,
+            paddingVertical: 4,
+            borderRadius: 999,
+            zIndex: 1,
+          }}
+        >
+          <Text className="text-[10px] font-bold text-white">Instant</Text>
+        </View>
+      ) : null}
       <View className="flex-row items-stretch">
         <View className="w-1.5 rounded-full mr-3" style={{ backgroundColor: Colors.info }} />
 
         <View className="w-16 mr-3">
           <View className="w-16 h-16 rounded-2xl overflow-hidden bg-blue-50 items-center justify-center">
-            {order.image || order.package_image ? (
+            {getOrderImage(order) ? (
               <Image
-                source={{ uri: order.image || order.package_image }}
+                source={{ uri: getOrderImage(order) }}
                 style={{ width: '100%', height: '100%' }}
                 resizeMode="cover"
               />
@@ -89,7 +201,7 @@ export default function DashboardScreen() {
           <View className="flex-row items-start justify-between mb-2">
             <View className="flex-1 pr-2">
               <Text className="text-base font-bold text-textPrimary" numberOfLines={2}>
-                {order.meal_name || 'Order'}
+                {getOrderTitle(order)}
               </Text>
               <Text className="text-xs text-textSecondary mt-1" numberOfLines={1}>
                 {order.user_name}
@@ -120,10 +232,19 @@ export default function DashboardScreen() {
             <View className="flex-row items-center bg-blue-50 rounded-full px-2.5 py-1">
               <Ionicons name="receipt-outline" size={12} color={Colors.info} />
               <Text className="text-[10px] font-semibold text-blue-700 ml-1" numberOfLines={1}>
-                Today
+                {dateLabel}
               </Text>
             </View>
           </View>
+
+          {order.delivery_mode === 'instant' ? (
+            <View className="flex-row items-center mt-2 bg-blue-50 rounded-full px-3 py-2">
+              <Ionicons name="timer-outline" size={12} color={Colors.info} />
+              <Text className="text-[10px] font-semibold text-blue-700 ml-1" numberOfLines={1}>
+                {getInstantCountdown(order)}
+              </Text>
+            </View>
+          ) : null}
 
           {(() => {
             const address =
@@ -148,6 +269,39 @@ export default function DashboardScreen() {
               </View>
             ) : null;
           })()}
+
+          {dashboardNextActions(order.status).length ? (
+            <View className="flex-row flex-wrap mt-3">
+              {dashboardNextActions(order.status).map((action) => {
+                const key = `${order._id}-${action.value}`;
+                return (
+                  <TouchableOpacity
+                    key={key}
+                    onPress={(event) => {
+                      event.stopPropagation?.();
+                      updateOrderStatus(order._id, action.value);
+                    }}
+                    disabled={Boolean(updatingOrder)}
+                    className="mr-2 mb-2 rounded-full px-3 py-2"
+                    style={{
+                      backgroundColor: action.value === 'out_for_delivery' ? '#E3F2FD' : '#E3F2FD',
+                      opacity: updatingOrder ? 0.6 : 1,
+                    }}
+                  >
+                    <Text className="text-xs font-semibold" style={{ color: Colors.info }}>
+                      {action.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          ) : (
+            String(order.status || '').toLowerCase() === 'out_for_delivery' ? (
+              <Text className="text-xs text-textTertiary mt-3">
+                Delivery partner will mark this order delivered.
+              </Text>
+            ) : null
+          )}
         </View>
       </View>
 
@@ -218,7 +372,7 @@ export default function DashboardScreen() {
         {(dashboard?.today_orders?.length ?? 0) > 0 && (
           <View className="mb-4">
             <Text className="text-lg font-bold text-textPrimary mb-2">Today's Orders ({dashboard!.today_orders.length})</Text>
-            {dashboard!.today_orders.slice(0, 5).map((order) => (
+            {todayOrders.slice(0, 5).map((order) => (
               <OrderItem key={order._id} order={order} />
             ))}
             {dashboard!.today_orders.length > 5 && (
@@ -233,8 +387,8 @@ export default function DashboardScreen() {
         {(dashboard?.tomorrow_orders?.length ?? 0) > 0 && (
           <View className="mb-4">
             <Text className="text-base font-bold text-textPrimary mb-2">Tomorrow ({dashboard!.tomorrow_orders.length})</Text>
-            {dashboard!.tomorrow_orders.slice(0, 3).map((order) => (
-              <OrderItem key={order._id} order={order} />
+            {tomorrowOrders.slice(0, 3).map((order) => (
+              <OrderItem key={order._id} order={order} dateLabel="Tomorrow" />
             ))}
           </View>
         )}

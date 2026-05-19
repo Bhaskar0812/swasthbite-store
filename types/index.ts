@@ -51,6 +51,7 @@ export type DashboardOrder = {
   package_name?: string;
   package_image?: string;
   image?: string;
+  meal_image?: string;
   delivery_mode?: "scheduled" | "instant";
   instant_deadline_at?: string | null;
   createdAt?: string;
@@ -78,6 +79,7 @@ export type DashboardOrder = {
     state?: string;
     pincode?: string;
   };
+  order_id?: string;
   quantity?: number;
 };
 

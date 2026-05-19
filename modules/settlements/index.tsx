@@ -163,7 +163,7 @@ export default function FinanceScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-background" edges={['top']}>
+    <SafeAreaView key={tab} className="flex-1 bg-background" edges={['top']}>
       <View className="px-4 pt-2 pb-3">
         <View className="flex-row justify-between items-center mb-3">
           <Text className="text-xl font-bold text-textPrimary">Finance</Text>

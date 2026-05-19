@@ -87,6 +87,20 @@ export default function RootLayout() {
       );
     };
 
+    const onOrderCancelled = (payload: any) => {
+      refreshStoreState(
+        'Order cancelled',
+        payload?.subscription_id ? `Order #${String(payload.subscription_id).slice(-6).toUpperCase()} was cancelled` : 'An order was cancelled',
+      );
+    };
+
+    const onDeliveryRescheduled = (payload: any) => {
+      refreshStoreState(
+        'Delivery rescheduled',
+        payload?.subscription_id ? `Delivery updated for ${String(payload.subscription_id).slice(-6).toUpperCase()}` : 'A delivery was rescheduled',
+      );
+    };
+
     const onStoreToggled = (payload: any) => {
       Toast.show({
         type: payload?.is_online ? 'success' : 'info',
@@ -98,14 +112,23 @@ export default function RootLayout() {
 
     socket.on('order:new', onNewOrder);
     socket.on('order:updated', onOrderUpdated);
+    socket.on('order:cancelled', onOrderCancelled);
     socket.on('delivery:updated', onOrderUpdated);
+    socket.on('delivery:rescheduled', onDeliveryRescheduled);
     socket.on('store:toggled', onStoreToggled);
+
+    socket.on('connect', () => {
+      fetchDashboard();
+    });
 
     return () => {
       socket.off('order:new', onNewOrder);
       socket.off('order:updated', onOrderUpdated);
+      socket.off('order:cancelled', onOrderCancelled);
       socket.off('delivery:updated', onOrderUpdated);
+      socket.off('delivery:rescheduled', onDeliveryRescheduled);
       socket.off('store:toggled', onStoreToggled);
+      socket.off('connect');
     };
   }, [token, fetchDashboard, fetchUnreadCount]);
 

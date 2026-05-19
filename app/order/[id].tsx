@@ -20,7 +20,7 @@ const nextActions = (status: string) => {
   switch (status) {
     case 'scheduled':
       return [
-        { label: 'Preparing', value: 'preparing' },
+        { label: 'Mark as Preparing', value: 'preparing' },
         { label: 'Out for Delivery', value: 'out_for_delivery' },
         { label: 'Delivered', value: 'delivered' },
       ];
@@ -123,6 +123,26 @@ export default function StoreOrderDetailScreen() {
     }
   };
 
+  const markPaid = async () => {
+    if (!id) return;
+    try {
+      setUpdatingKey('mark_paid');
+      const paidAmount = Number(order?.paid_amount || 0);
+      const dueAmount = Number(order?.due_amount || 0);
+      const res = await storeService.updateOrderPaymentState(String(id), {
+        payment_status: 'paid',
+        paid_amount: paidAmount + dueAmount,
+        due_amount: 0,
+      });
+      setOrder(res.data || order);
+      Alert.alert('Success', 'Order marked as paid.');
+    } catch (error: any) {
+      Alert.alert('Error', error?.response?.data?.message || 'Failed to mark order paid');
+    } finally {
+      setUpdatingKey(null);
+    }
+  };
+
   const cancelOrder = async () => {
     if (!id) return;
     Alert.alert('Cancel order?', 'This will cancel the remaining deliveries for this order.', [
@@ -168,7 +188,27 @@ export default function StoreOrderDetailScreen() {
   }
 
   const addressText = buildAddress(order);
-  const packageImage = order.image || order.package_image;
+  const normalizeText = (value?: string) => {
+    const normalized = String(value || '').trim();
+    return normalized && normalized !== '-' ? normalized : '';
+  };
+
+  const deliveryGroups = (order.delivery_dates || []).reduce((groups: Record<string, any[]>, delivery: any) => {
+    const dateKey = new Date(delivery.date).toISOString().split('T')[0];
+    groups[dateKey] = groups[dateKey] || [];
+    groups[dateKey].push(delivery);
+    return groups;
+  }, {});
+
+  const sortedDeliveryDates = Object.keys(deliveryGroups).sort(
+    (a, b) => new Date(a).getTime() - new Date(b).getTime(),
+  );
+
+  const packageImage = order.image || order.package_image || order.meal_image || undefined;
+  const orderTitle =
+    normalizeText(order.meal_name) || normalizeText(order.package_name) || 'Order';
+  const orderSubtitle =
+    normalizeText(order.package_name) || normalizeText(order.meal_name) || 'Order';
   const dueAmount = Number(order.due_amount || 0);
 
   return (
@@ -192,8 +232,8 @@ export default function StoreOrderDetailScreen() {
               )}
             </View>
             <View className="flex-1">
-              <Text className="text-white text-xl font-extrabold" numberOfLines={2}>{order.meal_name}</Text>
-              <Text className="text-blue-100 mt-1" numberOfLines={1}>{order.package_name || 'Order'}</Text>
+              <Text className="text-white text-xl font-extrabold" numberOfLines={2}>{orderTitle}</Text>
+              <Text className="text-blue-100 mt-1" numberOfLines={1}>{orderSubtitle}</Text>
               <View className="flex-row items-center mt-2">
                 <View className="px-3 py-1 rounded-full mr-2" style={{ backgroundColor: statusMeta.bg }}>
                   <Text className="text-xs font-bold" style={{ color: statusMeta.color }}>{statusMeta.label}</Text>
@@ -246,99 +286,97 @@ export default function StoreOrderDetailScreen() {
         <View className="bg-white rounded-2xl p-4 mb-4 shadow-sm" style={{ elevation: 2 }}>
           <View className="flex-row items-center justify-between mb-3">
             <Text className="text-sm font-bold text-textPrimary">Order Actions</Text>
-            {(dueAmount > 0 && order.payment_status !== 'paid') ? (
-              <TouchableOpacity
-                onPress={requestPayment}
-                disabled={updatingKey === 'payment'}
-                className="px-3 py-2 rounded-xl"
-                style={{ backgroundColor: Colors.primary }}
-              >
-                <Text className="text-white text-xs font-semibold">
-                  {updatingKey === 'payment' ? 'Sending...' : 'Request Payment'}
-                </Text>
-              </TouchableOpacity>
-            ) : null}
+            <View className="flex-row">
+              {(dueAmount > 0 && order.payment_status !== 'paid') ? (
+                <TouchableOpacity
+                  onPress={requestPayment}
+                  disabled={updatingKey === 'payment'}
+                  className="px-3 py-2 rounded-xl mr-2"
+                  style={{ backgroundColor: Colors.primary }}
+                >
+                  <Text className="text-white text-xs font-semibold">
+                    {updatingKey === 'payment' ? 'Sending...' : 'Request Payment'}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+              {(dueAmount > 0 && order.payment_status !== 'paid') ? (
+                <TouchableOpacity
+                  onPress={markPaid}
+                  disabled={updatingKey === 'mark_paid'}
+                  className="px-3 py-2 rounded-xl"
+                  style={{ backgroundColor: '#10B981' }}
+                >
+                  <Text className="text-white text-xs font-semibold">
+                    {updatingKey === 'mark_paid' ? 'Updating...' : 'Mark Paid'}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
           </View>
-          <TouchableOpacity
-            onPress={cancelOrder}
-            disabled={updatingKey === 'cancel'}
-            className="rounded-xl px-4 py-3"
-            style={{ backgroundColor: '#FFF1F2' }}
-          >
-            <Text className="text-error font-semibold text-center">
-              {updatingKey === 'cancel' ? 'Cancelling...' : 'Cancel Order'}
-            </Text>
-          </TouchableOpacity>
+          {![ 'delivered', 'completed', 'cancelled' ].includes(String(order.status || '').toLowerCase()) ? (
+            <TouchableOpacity
+              onPress={cancelOrder}
+              disabled={updatingKey === 'cancel'}
+              className="rounded-xl px-4 py-3"
+              style={{ backgroundColor: '#FFF1F2' }}
+            >
+              <Text className="text-error font-semibold text-center">
+                {updatingKey === 'cancel' ? 'Cancelling...' : 'Cancel Order'}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
 
         <Text className="text-lg font-bold text-textPrimary mb-3">Delivery Timeline</Text>
-        {order.delivery_dates?.length ? (
-          order.delivery_dates.map((delivery: any) => {
-            const meta = STATUS_META[String(delivery.status || '').toLowerCase()] || STATUS_META.scheduled;
-            const actions = nextActions(String(delivery.status || '').toLowerCase());
-            const canEdit = !['delivered', 'cancelled'].includes(String(delivery.status || '').toLowerCase());
-            return (
-              <View key={delivery._id || `${delivery.delivery_index}`} className="bg-white rounded-2xl p-4 mb-3 shadow-sm" style={{ elevation: 2 }}>
-                <View className="flex-row items-start justify-between mb-3">
-                  <View className="flex-1 pr-3">
-                    <Text className="text-base font-bold text-textPrimary" numberOfLines={2}>
-                      {delivery.meal_name || order.meal_name}
-                    </Text>
-                    <Text className="text-xs text-textSecondary mt-1">
-                      {formatDateLabel(delivery.date)} • {delivery.slot}
-                    </Text>
-                  </View>
-                  <View className="px-3 py-1 rounded-full" style={{ backgroundColor: meta.bg }}>
-                    <Text className="text-xs font-bold" style={{ color: meta.color }}>{meta.label}</Text>
-                  </View>
-                </View>
+        {sortedDeliveryDates.length ? (
+          sortedDeliveryDates.map((dateKey) => (
+            <View key={dateKey} className="mb-4">
+              <Text className="text-sm font-semibold text-textPrimary mb-2">{formatDateLabel(dateKey)}</Text>
+              {deliveryGroups[dateKey].map((delivery: any) => {
+                const meta = STATUS_META[String(delivery.status || '').toLowerCase()] || STATUS_META.scheduled;
+                const actions = nextActions(String(delivery.status || '').toLowerCase());
+                const canEdit = !['delivered', 'cancelled'].includes(String(delivery.status || '').toLowerCase());
+                return (
+                  <View key={delivery._id || `${delivery.delivery_index}`} className="bg-white rounded-2xl p-4 mb-3 shadow-sm" style={{ elevation: 2 }}>
+                    <View className="flex-row items-start justify-between mb-3">
+                      <View className="flex-1 pr-3">
+                        <Text className="text-base font-bold text-textPrimary" numberOfLines={2}>
+                          {delivery.meal_name || order.meal_name}
+                        </Text>
+                        <Text className="text-xs text-textSecondary mt-1">
+                          {delivery.slot}
+                        </Text>
+                      </View>
+                      <View className="px-3 py-1 rounded-full" style={{ backgroundColor: meta.bg }}>
+                        <Text className="text-xs font-bold" style={{ color: meta.color }}>{meta.label}</Text>
+                      </View>
+                    </View>
 
-                {delivery.meal_image || packageImage ? (
-                  <View className="w-full h-36 rounded-2xl overflow-hidden bg-slate-100 mb-3">
-                    <Image
-                      source={{ uri: delivery.meal_image || packageImage }}
-                      style={{ width: '100%', height: '100%' }}
-                      resizeMode="cover"
-                    />
-                  </View>
-                ) : null}
+                    {delivery.meal_image || packageImage ? (
+                      <View className="w-full h-36 rounded-2xl overflow-hidden bg-slate-100 mb-3">
+                        <Image
+                          source={{ uri: delivery.meal_image || packageImage }}
+                          style={{ width: '100%', height: '100%' }}
+                          resizeMode="cover"
+                        />
+                      </View>
+                    ) : null}
 
-                {delivery.delivery_note ? (
-                  <View className="flex-row items-start bg-amber-50 rounded-xl px-3 py-2 mb-3">
-                    <Ionicons name="document-text-outline" size={14} color="#D97706" style={{ marginTop: 2 }} />
-                    <Text className="text-xs text-[#92400E] ml-2 flex-1" numberOfLines={2}>{delivery.delivery_note}</Text>
-                  </View>
-                ) : null}
+                            {delivery.delivery_note ? (
+                        <View className="flex-row items-start bg-amber-50 rounded-xl px-3 py-2 mb-3">
+                          <Ionicons name="document-text-outline" size={14} color="#D97706" style={{ marginTop: 2 }} />
+                          <Text className="text-xs text-[#92400E] ml-2 flex-1" numberOfLines={2}>{delivery.delivery_note}</Text>
+                        </View>
+                      ) : null}
 
-                {canEdit && actions.length ? (
-                  <View className="flex-row flex-wrap">
-                    {actions.map((action) => {
-                      const key = `${delivery.delivery_index}-${action.value}`;
-                      const busy = updatingKey === key;
-                      return (
-                        <TouchableOpacity
-                          key={action.value}
-                          onPress={() => updateDeliveryStatus(delivery.delivery_index, action.value)}
-                          disabled={Boolean(updatingKey)}
-                          className="mr-2 mb-2 rounded-xl px-3 py-2"
-                          style={{ backgroundColor: action.value === 'delivered' ? '#E6F9F1' : '#E3F2FD' }}
-                        >
-                          <Text
-                            className="text-xs font-semibold"
-                            style={{ color: action.value === 'delivered' ? Colors.success : Colors.info }}
-                          >
-                            {busy ? 'Updating...' : action.label}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                ) : (
-                  <Text className="text-xs text-textTertiary">No further action available for this delivery.</Text>
-                )}
-              </View>
-            );
-          })
+                      <Text className="text-xs text-textTertiary">
+                        Status updates are managed from the dashboard.
+                      </Text>
+                    </View>
+                );
+              })}
+            </View>
+          ))
         ) : (
           <View className="bg-white rounded-2xl p-4 items-center">
             <Ionicons name="calendar-outline" size={30} color={Colors.textTertiary} />

@@ -24,7 +24,40 @@ export default function OrdersScreen() {
     return () => clearInterval(timer);
   }, []);
 
-  const orders = tab === 'today' ? (dashboard?.today_orders || []) : (dashboard?.tomorrow_orders || []);
+  const normalizeText = (value?: string) => {
+    const normalized = String(value || '').trim();
+    return normalized && normalized !== '-' ? normalized : '';
+  };
+
+  const getOrderTitle = (item: DashboardOrder) =>
+    normalizeText(item.meal_name) || normalizeText(item.package_name) || 'Order';
+  const getOrderImage = (item: DashboardOrder) =>
+    item.package_image || item.image || item.meal_image || undefined;
+  const isInstantOrder = (item: DashboardOrder) => item.delivery_mode === 'instant';
+  const isDeliveredOrder = (item: DashboardOrder) => {
+    const status = String(item.status || '').toLowerCase();
+    return ['delivered', 'completed', 'cancelled'].includes(status);
+  };
+
+  const sortOrders = (list: DashboardOrder[]) => {
+    return [...list].sort((a, b) => {
+      const aRank = isInstantOrder(a) ? 0 : isDeliveredOrder(a) ? 2 : 1;
+      const bRank = isInstantOrder(b) ? 0 : isDeliveredOrder(b) ? 2 : 1;
+      if (aRank !== bRank) return aRank - bRank;
+
+      if (aRank === 0) {
+        const aDeadline = a.instant_deadline_at ? new Date(a.instant_deadline_at).getTime() : 0;
+        const bDeadline = b.instant_deadline_at ? new Date(b.instant_deadline_at).getTime() : 0;
+        return aDeadline - bDeadline;
+      }
+
+      const aCreated = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bCreated = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bCreated - aCreated;
+    });
+  };
+
+  const orders = sortOrders(tab === 'today' ? (dashboard?.today_orders || []) : (dashboard?.tomorrow_orders || []));
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -32,6 +65,7 @@ export default function OrdersScreen() {
         return Colors.warning;
       case 'preparing':
       case 'ready':
+      case 'out_for_delivery':
         return Colors.info;
       case 'delivered':
       case 'completed':
@@ -83,25 +117,41 @@ export default function OrdersScreen() {
   const renderOrder = ({ item }: { item: DashboardOrder }) => (
     <TouchableOpacity
       activeOpacity={0.82}
-      onPress={() => router.push(`/order/${item._id}` as any)}
-      className="bg-white rounded-2xl p-4 mb-4 mx-4 shadow-lg"
+      onPress={() => router.push(`/order/${item.order_id || item._id}` as any)}
+      className="rounded-3xl p-4 mb-4 mx-4 shadow-lg"
       style={{
-        elevation: 4,
-        shadowColor: item.delivery_mode === 'instant' ? '#2563EB' : '#2196F3',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.08,
-        shadowRadius: 8,
+        elevation: 6,
+        shadowColor: item.delivery_mode === 'instant' ? '#2563EB' : '#000000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: item.delivery_mode === 'instant' ? 0.15 : 0.08,
+        shadowRadius: 12,
         borderWidth: 1,
-        borderColor: item.delivery_mode === 'instant' ? '#BFDBFE' : '#EEF2FF',
-        backgroundColor: item.delivery_mode === 'instant' ? '#F8FBFF' : '#fff',
+        borderColor: item.delivery_mode === 'instant' ? '#2563EB' : '#EEF2FF',
+        backgroundColor: item.delivery_mode === 'instant' ? '#EFF6FF' : '#fff',
       }}
     >
+      {item.delivery_mode === 'instant' ? (
+        <View
+          style={{
+            position: 'absolute',
+            top: 12,
+            right: 16,
+            backgroundColor: '#2563EB',
+            paddingHorizontal: 10,
+            paddingVertical: 4,
+            borderRadius: 999,
+            zIndex: 1,
+          }}
+        >
+          <Text className="text-[10px] font-bold text-white">Instant</Text>
+        </View>
+      ) : null}
       <View className="flex-row items-start justify-between mb-2">
         <View className="flex-row items-start flex-1 mr-3 min-w-0">
           <View className="w-14 h-14 rounded-2xl overflow-hidden bg-blue-50 items-center justify-center mr-3">
-            {item.image || item.package_image ? (
+            {getOrderImage(item) ? (
               <Image
-                source={{ uri: item.image || item.package_image }}
+                source={{ uri: getOrderImage(item) }}
                 style={{ width: '100%', height: '100%' }}
                 resizeMode="cover"
               />
@@ -112,7 +162,7 @@ export default function OrdersScreen() {
 
           <View className="flex-1 min-w-0">
             <Text className="text-base font-bold text-textPrimary" numberOfLines={2}>
-              {item.meal_name}
+              {getOrderTitle(item)}
             </Text>
             {(item.quantity || 1) > 1 && (
               <View className="mt-1 self-start px-2 py-0.5 rounded-full bg-blue-100">
