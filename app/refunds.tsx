@@ -134,11 +134,21 @@ export default function RefundsScreen() {
       })
       : '';
 
+    const orderId =
+      String(
+        order?._id ||
+        order?.subscription_id ||
+        order?.order_id ||
+        order?.id ||
+        '',
+      ).trim() || '';
+
     return {
       customerName,
       subTitle: `${orderTypeLabel} - ${itemSummary}`,
       amount,
       dateStr,
+      orderId,
     };
   };
 
@@ -227,6 +237,11 @@ export default function RefundsScreen() {
                                 {card.customerName}
                               </Text>
                               <Text className="text-xs text-textSecondary mt-0.5" numberOfLines={2}>{card.subTitle}</Text>
+                              {card.orderId ? (
+                                <Text className="text-[11px] mt-0.5" style={{ color: Colors.textSecondary }} numberOfLines={1}>
+                                  Order ID: {card.orderId}
+                                </Text>
+                              ) : null}
                               <Text className="text-xs text-textTertiary mt-0.5">{formatAmount(card.amount)}</Text>
                             </View>
                             <Text className="text-[10px] text-textTertiary ml-2">{card.dateStr}</Text>

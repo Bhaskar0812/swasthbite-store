@@ -74,6 +74,27 @@ export default function FinanceScreen() {
       .replace(/_/g, ' ')
       .replace(/\b\w/g, (ch) => ch.toUpperCase());
 
+  const getCashUpiAdjustment = (settlement: any) => {
+    const explicitCombined = toAmount(
+      settlement?.cash_upi_direct_payment_bulk_orders ??
+      settlement?.cash_upi_direct_payment ??
+      settlement?.cash_upi_direct_payment_deductions,
+    );
+    if (Math.abs(explicitCombined) > 0) return explicitCombined;
+
+    const explicitSplit =
+      toAmount(settlement?.cash_direct_payment_bulk_orders ?? settlement?.cash_direct_payment) +
+      toAmount(settlement?.upi_direct_payment_bulk_orders ?? settlement?.upi_direct_payment);
+    if (Math.abs(explicitSplit) > 0) return explicitSplit;
+
+    // Backward compatibility: derive when explicit cash/UPI field is absent.
+    const derived =
+      toAmount(settlement?.net_amount) +
+      toAmount(settlement?.carry_forward) -
+      toAmount(settlement?.payable_amount);
+    return Math.abs(derived) < 0.01 ? 0 : derived;
+  };
+
   // Settlement processing
   const sortedSettlements = [...settlements]
     .sort(
@@ -179,7 +200,7 @@ export default function FinanceScreen() {
     const refundDed = toAmount((item as any)?.refund_deductions);
     const promoDed = toAmount((item as any)?.promotional_wallet_deductions);
     const otherDed = toAmount((item as any)?.other_deductions);
-    const cashUpiAdj = toAmount((item as any)?.cash_upi_direct_payment_bulk_orders);
+    const cashUpiAdj = getCashUpiAdjustment(item as any);
     const totalDed = penaltyDed + commissionDed + deliveryDed + refundDed + promoDed + otherDed + cashUpiAdj;
 
     const status = String((item as any)?.status || '').toLowerCase();
@@ -261,7 +282,7 @@ export default function FinanceScreen() {
               )}
               {cashUpiAdj > 0 && (
                 <View className="flex-row justify-between ml-2 mb-0.5">
-                  <Text className="text-xs text-textSecondary">Cash/UPI Direct</Text>
+                  <Text className="text-xs text-textSecondary">Cash/UPI Direct Payment</Text>
                   <Text className="text-xs text-red-700">-{formatMoney(cashUpiAdj)}</Text>
                 </View>
               )}

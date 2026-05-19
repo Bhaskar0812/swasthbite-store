@@ -12,7 +12,7 @@ export default function ProfileScreen() {
   const unreadCount = useNotificationStore((s) => s.unreadCount);
 
   const handleCopyStoreId = async () => {
-    const storeId = user?._id || '';
+    const storeId = String(user?._id || '').toUpperCase();
     if (!storeId) {
       Alert.alert('Error', 'Store ID not found');
       return;
@@ -100,7 +100,7 @@ export default function ProfileScreen() {
             >
               <Ionicons name="copy-outline" size={14} color={Colors.info} />
               <Text className="text-xs font-semibold ml-1.5" style={{ color: Colors.info }}>
-                Store ID: {user._id.substring(0, 8)}...
+                Store ID: {String(user._id).toUpperCase()}
               </Text>
             </TouchableOpacity>
           )}
