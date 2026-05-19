@@ -26,6 +26,37 @@ export default function ExpensesScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ title: '', amount: '', category: '', notes: '' });
 
+  const categoryOptions = [
+    { key: 'raw_material', label: 'Ingredients' },
+    { key: 'packaging', label: 'Packaging' },
+    { key: 'utilities', label: 'Utilities' },
+    { key: 'salary', label: 'Salary' },
+    { key: 'rent', label: 'Rent' },
+    { key: 'marketing', label: 'Marketing' },
+    { key: 'other', label: 'Other' },
+  ] as const;
+
+  const toCategoryKey = (value: string) => {
+    const v = String(value || '').trim().toLowerCase();
+    const map: Record<string, string> = {
+      ingredients: 'raw_material',
+      'raw material': 'raw_material',
+      raw_material: 'raw_material',
+      packaging: 'packaging',
+      utilities: 'utilities',
+      salary: 'salary',
+      rent: 'rent',
+      marketing: 'marketing',
+      other: 'other',
+    };
+    return map[v] || 'other';
+  };
+
+  const categoryLabel = (value: string) => {
+    const key = toCategoryKey(value);
+    return categoryOptions.find((c) => c.key === key)?.label || 'Other';
+  };
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
@@ -33,8 +64,8 @@ export default function ExpensesScreen() {
         storeService.getExpenses(),
         storeService.getExpenseSummary(),
       ]);
-      setExpenses(eRes.data || []);
-      setSummary(sRes.data);
+      setExpenses(eRes.data?.expenses || eRes.data || []);
+      setSummary(sRes.data || {});
     } catch { } finally {
       setLoading(false);
     }
@@ -49,7 +80,21 @@ export default function ExpensesScreen() {
     }
     setSaving(true);
     try {
-      const payload = { ...form, amount: Number(form.amount), date: new Date().toISOString() };
+      const amount = Number(form.amount);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        Toast.show({ type: 'error', text1: 'Enter a valid amount' });
+        setSaving(false);
+        return;
+      }
+
+      const payload = {
+        title: form.title.trim(),
+        amount,
+        category: toCategoryKey(form.category),
+        description: form.notes.trim(),
+        date: new Date().toISOString(),
+      };
+
       if (editingId) {
         await storeService.updateExpense(editingId, payload);
       } else {
@@ -75,8 +120,6 @@ export default function ExpensesScreen() {
     } catch { }
   };
 
-  const categories = ['Ingredients', 'Packaging', 'Utilities', 'Salary', 'Rent', 'Marketing', 'Other'];
-
   return (
     <SafeAreaView className="flex-1 bg-background">
       <View className="flex-row items-center px-4 py-3 bg-white border-b border-divider">
@@ -98,12 +141,12 @@ export default function ExpensesScreen() {
           <Text className="text-sm font-bold text-textPrimary mb-2">Summary</Text>
           <View className="flex-row justify-between">
             <View className="items-center flex-1">
-              <Text className="text-lg font-bold text-textPrimary">₹{summary.total || 0}</Text>
+              <Text className="text-lg font-bold text-textPrimary">₹{summary.total_expenses || summary.total || 0}</Text>
               <Text className="text-xs text-textTertiary">Total</Text>
             </View>
             <View className="items-center flex-1">
-              <Text className="text-lg font-bold text-warning">₹{summary.this_month || 0}</Text>
-              <Text className="text-xs text-textTertiary">This Month</Text>
+              <Text className="text-lg font-bold text-warning">{summary.count || 0}</Text>
+              <Text className="text-xs text-textTertiary">Entries</Text>
             </View>
           </View>
         </View>
@@ -119,8 +162,8 @@ export default function ExpensesScreen() {
             <View className="flex-row justify-between items-start">
               <View className="flex-1">
                 <Text className="text-sm font-semibold text-textPrimary">{item.title}</Text>
-                <Text className="text-xs text-textTertiary mt-0.5">{item.category}</Text>
-                {item.notes && <Text className="text-xs text-textSecondary mt-1">{item.notes}</Text>}
+                <Text className="text-xs text-textTertiary mt-0.5">{categoryLabel(item.category)}</Text>
+                {(item as any).description && <Text className="text-xs text-textSecondary mt-1">{(item as any).description}</Text>}
               </View>
               <View className="items-end">
                 <Text className="text-base font-bold text-textPrimary">₹{item.amount}</Text>
@@ -128,7 +171,12 @@ export default function ExpensesScreen() {
                   <TouchableOpacity
                     onPress={() => {
                       setEditingId(item._id);
-                      setForm({ title: item.title, amount: String(item.amount), category: item.category, notes: item.notes || '' });
+                      setForm({
+                        title: item.title,
+                        amount: String(item.amount),
+                        category: toCategoryKey(item.category),
+                        notes: (item as any).description || '',
+                      });
                       setModalVisible(true);
                     }}
                     className="mr-2"
@@ -173,14 +221,14 @@ export default function ExpensesScreen() {
 
             <Text className="text-xs font-medium text-textSecondary mb-1">Category</Text>
             <View className="flex-row flex-wrap mb-3">
-              {categories.map((cat) => (
+              {categoryOptions.map((cat) => (
                 <TouchableOpacity
-                  key={cat}
-                  onPress={() => setForm({ ...form, category: cat })}
+                  key={cat.key}
+                  onPress={() => setForm({ ...form, category: cat.key })}
                   className="px-3 py-1.5 rounded-full mr-2 mb-2 border"
-                  style={{ borderColor: form.category === cat ? Colors.primary : Colors.border, backgroundColor: form.category === cat ? Colors.primary + '10' : '#fff' }}
+                  style={{ borderColor: form.category === cat.key ? Colors.primary : Colors.border, backgroundColor: form.category === cat.key ? Colors.primary + '10' : '#fff' }}
                 >
-                  <Text className="text-xs" style={{ color: form.category === cat ? Colors.primary : Colors.textSecondary }}>{cat}</Text>
+                  <Text className="text-xs" style={{ color: form.category === cat.key ? Colors.primary : Colors.textSecondary }}>{cat.label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
