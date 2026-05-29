@@ -24,7 +24,7 @@
         "ITSAppUsesNonExemptEncryption": false,
         "NSSupportsLiveActivities": true,
         "NSSupportsLiveActivitiesFrequentUpdates": true,
-        "UIBackgroundModes": ["remote-notification", "remote-notification"]
+        "UIBackgroundModes": ["remote-notification"]
       }
     },
     "android": {
@@ -34,7 +34,7 @@
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#3B82F6"
       },
-      "permissions": ["POST_NOTIFICATIONS", "POST_NOTIFICATIONS"]
+      "permissions": ["POST_NOTIFICATIONS"]
     },
     "experiments": {
       "tsconfigPaths": true
@@ -47,7 +47,8 @@
         {
           "icon": "./assets/icon.png",
           "color": "#E23744",
-          "mode": "production"
+          "mode": "production",
+          "enableBackgroundRemoteNotifications": true
         }
       ],
       [
