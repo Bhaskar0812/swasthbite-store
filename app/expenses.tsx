@@ -8,11 +8,11 @@ import {
   Modal,
   RefreshControl,
   ActivityIndicator,
-  KeyboardAvoidingView,
+  Keyboard,
   Platform,
   ScrollView,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { storeService } from 'services/storeService';
@@ -21,10 +21,12 @@ import Toast from 'react-native-toast-message';
 import type { Expense } from 'types';
 
 export default function ExpensesScreen() {
+  const insets = useSafeAreaInsets();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [summary, setSummary] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ title: '', amount: '', category: '', notes: '' });
@@ -75,6 +77,21 @@ export default function ExpensesScreen() {
   }, []);
 
   useEffect(() => { fetchData(); }, []);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, (event) => {
+      setKeyboardHeight(event.endCoordinates?.height ?? 0);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const handleSave = async () => {
     if (!form.title || !form.amount || !form.category) {
@@ -207,24 +224,33 @@ export default function ExpensesScreen() {
 
       {/* Add/Edit Modal */}
       <Modal visible={modalVisible} animationType="slide" transparent presentationStyle="overFullScreen" onRequestClose={() => setModalVisible(false)}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }} keyboardVerticalOffset={80}>
-          <View className="flex-1 bg-black/50 justify-end">
-            <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
-              <View className="bg-white rounded-t-3xl p-5">
+        <View
+          className="flex-1 bg-black/50 justify-end"
+          style={{ paddingBottom: keyboardHeight > 0 ? Math.max(8, keyboardHeight - insets.bottom) : 0 }}
+        >
+            <ScrollView
+              contentContainerStyle={{
+                flexGrow: 1,
+                justifyContent: 'flex-end',
+                paddingTop: insets.top + 16,
+              }}
+              keyboardShouldPersistTaps="handled"
+            >
+              <View className="bg-white rounded-t-3xl px-5 pt-5" style={{ paddingBottom: 16 + insets.bottom, maxHeight: keyboardHeight > 0 ? '84%' : '90%' }}>
                 <View className="flex-row items-center justify-between mb-4">
-                  <Text className="text-lg font-bold text-textPrimary">{editingId ? 'Edit' : 'Add'} Expense</Text>
+                  <Text className="text-xl font-bold text-textPrimary">{editingId ? 'Edit' : 'Add'} Expense</Text>
                   <TouchableOpacity onPress={() => setModalVisible(false)}>
                     <Ionicons name="close" size={24} color={Colors.textTertiary} />
                   </TouchableOpacity>
                 </View>
 
-                <Text className="text-xs font-medium text-textSecondary mb-1">Title</Text>
-                <TextInput className="bg-background border border-border rounded-xl px-4 py-3 text-sm mb-3" value={form.title} onChangeText={(t) => setForm({ ...form, title: t })} placeholder="Expense title" />
+                <Text className="text-sm font-semibold text-textSecondary mb-1.5">Title</Text>
+                <TextInput className="bg-background border border-border rounded-xl px-4 py-4 text-base mb-3" value={form.title} onChangeText={(t) => setForm({ ...form, title: t })} placeholder="Expense title" placeholderTextColor={Colors.textTertiary} />
 
-                <Text className="text-xs font-medium text-textSecondary mb-1">Amount</Text>
-                <TextInput className="bg-background border border-border rounded-xl px-4 py-3 text-sm mb-3" value={form.amount} onChangeText={(t) => setForm({ ...form, amount: t })} placeholder="0" keyboardType="numeric" />
+                <Text className="text-sm font-semibold text-textSecondary mb-1.5">Amount</Text>
+                <TextInput className="bg-background border border-border rounded-xl px-4 py-4 text-2xl font-bold mb-3" value={form.amount} onChangeText={(t) => setForm({ ...form, amount: t })} placeholder="0" placeholderTextColor={Colors.textTertiary} keyboardType="numeric" />
 
-                <Text className="text-xs font-medium text-textSecondary mb-1">Category</Text>
+                <Text className="text-sm font-semibold text-textSecondary mb-1.5">Category</Text>
                 <View className="flex-row flex-wrap mb-3">
                   {categoryOptions.map((cat) => (
                     <TouchableOpacity
@@ -233,13 +259,13 @@ export default function ExpensesScreen() {
                       className="px-3 py-1.5 rounded-full mr-2 mb-2 border"
                       style={{ borderColor: form.category === cat.key ? Colors.primary : Colors.border, backgroundColor: form.category === cat.key ? Colors.primary + '10' : '#fff' }}
                     >
-                      <Text className="text-xs" style={{ color: form.category === cat.key ? Colors.primary : Colors.textSecondary }}>{cat.label}</Text>
+                      <Text className="text-sm" style={{ color: form.category === cat.key ? Colors.primary : Colors.textSecondary }}>{cat.label}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
 
-                <Text className="text-xs font-medium text-textSecondary mb-1">Notes (optional)</Text>
-                <TextInput className="bg-background border border-border rounded-xl px-4 py-3 text-sm mb-4" value={form.notes} onChangeText={(t) => setForm({ ...form, notes: t })} placeholder="Additional notes" multiline />
+                <Text className="text-sm font-semibold text-textSecondary mb-1.5">Notes (optional)</Text>
+                <TextInput className="bg-background border border-border rounded-xl px-4 py-4 text-base mb-4" value={form.notes} onChangeText={(t) => setForm({ ...form, notes: t })} placeholder="Additional notes" placeholderTextColor={Colors.textTertiary} multiline />
 
                 <TouchableOpacity onPress={handleSave} disabled={saving} className="bg-primary rounded-xl py-4 items-center">
                   {saving ? <ActivityIndicator color="#fff" /> : <Text className="text-white text-base font-bold">{editingId ? 'Update' : 'Add'} Expense</Text>}
@@ -247,7 +273,6 @@ export default function ExpensesScreen() {
               </View>
             </ScrollView>
           </View>
-        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
