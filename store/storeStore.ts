@@ -3,6 +3,13 @@ import { storeService } from "services/storeService";
 import { syncOngoingNextOrderActivity } from 'services/ongoingOrderActivityService';
 import type { DashboardData, MenuItem, Package } from "types";
 
+const unwrapData = <T>(payload: any): T => {
+  if (payload && typeof payload === "object" && "data" in payload) {
+    return payload.data as T;
+  }
+  return payload as T;
+};
+
 type StoreState = {
   dashboard: DashboardData | null;
   menuItems: MenuItem[];
@@ -33,12 +40,13 @@ export const useStoreStore = create<StoreState>((set, get) => ({
     set({ loading: true });
     try {
       const res = await storeService.getDashboard();
+      const dashboardData = unwrapData<DashboardData | null>(res) || null;
       set({
-        dashboard: res.data,
-        isOnline: res.data?.is_online ?? false,
+        dashboard: dashboardData,
+        isOnline: dashboardData?.is_online ?? false,
         loading: false,
       });
-      await syncOngoingNextOrderActivity(res.data);
+      await syncOngoingNextOrderActivity(dashboardData);
     } catch {
       set({ loading: false });
     }
@@ -47,21 +55,22 @@ export const useStoreStore = create<StoreState>((set, get) => ({
   fetchMenuItems: async () => {
     try {
       const res = await storeService.getMenuItems();
-      set({ menuItems: res.data || [] });
+      set({ menuItems: unwrapData<MenuItem[]>(res) || [] });
     } catch {}
   },
 
   fetchPackages: async () => {
     try {
       const res = await storeService.getPackages();
-      set({ packages: res.data || [] });
+      set({ packages: unwrapData<Package[]>(res) || [] });
     } catch {}
   },
 
   toggleOnline: async () => {
     try {
       const res = await storeService.toggleOnline();
-      set({ isOnline: res.data?.is_online ?? !get().isOnline });
+      const onlinePayload = unwrapData<{ is_online?: boolean } | null>(res);
+      set({ isOnline: onlinePayload?.is_online ?? !get().isOnline });
     } catch {}
   },
 

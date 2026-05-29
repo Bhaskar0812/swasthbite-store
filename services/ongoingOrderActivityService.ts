@@ -213,6 +213,19 @@ const buildAndroidBody = (
     .join(" • ");
 };
 
+const ensureNotificationPermission = async () => {
+  const existing = await Notifications.getPermissionsAsync();
+  if (existing.granted || existing.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL) {
+    return true;
+  }
+
+  const requested = await Notifications.requestPermissionsAsync({
+    ios: { allowAlert: true, allowBadge: true, allowSound: true },
+  });
+
+  return requested.granted || requested.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL;
+};
+
 const toLiveActivityState = (
   order: DashboardOrder,
   dashboard: DashboardData | null | undefined,
@@ -310,6 +323,9 @@ export async function syncOngoingNextOrderActivity(
   dashboard: DashboardData | null | undefined,
 ) {
   try {
+    const hasNotificationPermission = await ensureNotificationPermission();
+    if (!hasNotificationPermission) return;
+
     const order = pickNextOrder(dashboard);
 
     if (Platform.OS === "ios") {
@@ -333,6 +349,7 @@ export async function syncOngoingNextOrderActivity(
       content: {
         title: `Next order: ${getOrderTitle(order)}`,
         body: buildAndroidBody(order, dashboard),
+        channelId: ONGOING_CHANNEL_ID,
         data: {
           type: "ongoing_next_order",
           orderId: getOrderId(order),

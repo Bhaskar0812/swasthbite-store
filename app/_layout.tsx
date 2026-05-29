@@ -213,6 +213,18 @@ export default function RootLayout() {
   }, [token, fetchDashboard, fetchUnreadCount]);
 
   useEffect(() => {
+    if (!token) return;
+
+    const intervalId = setInterval(() => {
+      fetchDashboard();
+    }, 45000);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [token, fetchDashboard]);
+
+  useEffect(() => {
     Notifications.setBadgeCountAsync(0);
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') Notifications.setBadgeCountAsync(0);

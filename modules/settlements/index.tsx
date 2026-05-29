@@ -19,6 +19,13 @@ export default function FinanceScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
+  const unwrapData = (payload: any) => {
+    if (payload && typeof payload === 'object' && 'data' in payload) {
+      return payload.data;
+    }
+    return payload;
+  };
+
   // Fetch all data
   const fetchAll = useCallback(async () => {
     try {
@@ -28,10 +35,36 @@ export default function FinanceScreen() {
         storeService.getLedger(),
         storeService.getExpenses(),
       ]);
-      setSettlements(sRes.data?.settlements || sRes.data || []);
-      setPenalties(pRes.data?.penalties || pRes.data || []);
-      setLedger(lRes.data?.entries || lRes.data?.ledger || lRes.data || []);
-      setExpenses(eRes.data?.expenses || eRes.data || []);
+
+      const settlementsPayload = unwrapData(sRes);
+      const penaltiesPayload = unwrapData(pRes);
+      const ledgerPayload = unwrapData(lRes);
+      const expensesPayload = unwrapData(eRes);
+
+      setSettlements(
+        settlementsPayload?.settlements ||
+        settlementsPayload?.items ||
+        (Array.isArray(settlementsPayload) ? settlementsPayload : []),
+      );
+
+      setPenalties(
+        penaltiesPayload?.penalties ||
+        penaltiesPayload?.items ||
+        (Array.isArray(penaltiesPayload) ? penaltiesPayload : []),
+      );
+
+      setLedger(
+        ledgerPayload?.entries ||
+        ledgerPayload?.ledger ||
+        ledgerPayload?.items ||
+        (Array.isArray(ledgerPayload) ? ledgerPayload : []),
+      );
+
+      setExpenses(
+        expensesPayload?.expenses ||
+        expensesPayload?.items ||
+        (Array.isArray(expensesPayload) ? expensesPayload : []),
+      );
     } catch (err) {
       console.error('Finance fetch error:', err);
     } finally {
@@ -269,6 +302,7 @@ export default function FinanceScreen() {
   };
 
   const renderSettlement = ({ item }: { item: Settlement }) => {
+    const settlementIndex = sortedSettlements.findIndex((entry) => entry._id === item._id);
     const gross = toAmount((item as any)?.gross_amount);
     const net = toAmount(item.net_amount);
     const payable = toAmount((item as any)?.payable_amount);
@@ -285,6 +319,21 @@ export default function FinanceScreen() {
 
     const status = String((item as any)?.status || '').toLowerCase();
     const isClosed = ['completed', 'settled'].includes(status);
+
+    const previousSettlement =
+      settlementIndex >= 0 ? sortedSettlements[settlementIndex + 1] : null;
+    const previousStatus = String((previousSettlement as any)?.status || '').toLowerCase();
+    const previousCashUpiAdj = previousSettlement
+      ? getCashUpiAdjustment(previousSettlement as any)
+      : 0;
+
+    const shouldSuppressCarryForward =
+      carryFwd > 0 &&
+      ['completed', 'settled'].includes(previousStatus) &&
+      Math.abs(previousCashUpiAdj - carryFwd) < 0.01;
+
+    const effectiveCarryFwd = shouldSuppressCarryForward ? 0 : carryFwd;
+    const payableForDisplay = payable - (carryFwd - effectiveCarryFwd);
 
     return (
       <View className="bg-white rounded-xl overflow-hidden mb-3 mx-4" style={{ borderWidth: 1, borderColor: '#e5e7eb' }}>
@@ -371,19 +420,25 @@ export default function FinanceScreen() {
           </View>
 
           {/* Carry Forward */}
-          {carryFwd !== 0 && (
+          {effectiveCarryFwd !== 0 && (
             <View className="flex-row justify-between items-center mb-2">
               <Text className="text-base text-textSecondary">Carry Forward</Text>
-              <Text className={`text-base font-semibold ${carryFwd > 0 ? 'text-info' : 'text-error'}`}>
-                {carryFwd > 0 ? '+' : ''}{formatMoney(carryFwd)}
+              <Text className={`text-base font-semibold ${effectiveCarryFwd > 0 ? 'text-info' : 'text-error'}`}>
+                {effectiveCarryFwd > 0 ? '+' : ''}{formatMoney(effectiveCarryFwd)}
               </Text>
             </View>
+          )}
+
+          {shouldSuppressCarryForward && (
+            <Text className="text-[11px] text-textTertiary mb-2">
+              Carry forward adjustment skipped because previous cycle is already settled.
+            </Text>
           )}
 
           {/* Payable Amount - Highlighted */}
           <View className="flex-row justify-between items-center p-3 bg-blue-50 rounded-lg border border-blue-200">
             <Text className="text-base font-bold text-blue-900">Payable Amount</Text>
-            <Text className="text-xl font-bold text-blue-700">{formatMoney(payable)}</Text>
+            <Text className="text-xl font-bold text-blue-700">{formatMoney(payableForDisplay)}</Text>
           </View>
         </View>
 
