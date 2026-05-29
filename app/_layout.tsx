@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
-import { AppState } from 'react-native';
+import { useEffect, useState } from 'react';
+import { AppState, Platform } from 'react-native';
 import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as Notifications from 'expo-notifications';
@@ -29,6 +29,7 @@ Notifications.setNotificationHandler({
 export default function RootLayout() {
   const loadToken = useAuthStore((s) => s.loadToken);
   const token = useAuthStore((s) => s.token);
+  const user = useAuthStore((s) => s.user);
   const fetchDashboard = useStoreStore((s) => s.fetchDashboard);
   const fetchUnreadCount = useNotificationStore((s) => s.fetchUnreadCount);
   const [showSplash, setShowSplash] = useState(true);
@@ -47,17 +48,17 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
-    if (token) {
-      connectSocket(token);
+    if (token && user?._id) {
+      connectSocket(token, user._id);
       fetchUnreadCount();
-    } else {
+    } else if (!token) {
       disconnectSocket();
       clearOngoingNextOrderActivity();
     }
     return () => {
       disconnectSocket();
     };
-  }, [token]);
+  }, [token, user?._id]);
 
   useEffect(() => {
     const responseSub = Notifications.addNotificationResponseReceivedListener((response) => {
@@ -88,7 +89,35 @@ export default function RootLayout() {
       await Promise.all([fetchDashboard(), fetchUnreadCount()]);
     };
 
+    const presentNewOrderNotification = async (payload: any) => {
+      const orderId = String(payload?.order_id ?? payload?.subscription_id ?? '');
+      const message = payload?.subscription_id
+        ? `Order #${String(payload.subscription_id).slice(-6).toUpperCase()} is ready`
+        : 'A new order has arrived';
+
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: 'New order received',
+          body: message,
+          sound: 'default',
+          badge: 1,
+          data: { orderId },
+          ...(Platform.OS === 'android'
+            ? {
+              channelId: 'orders',
+              priority: Notifications.AndroidNotificationPriority.MAX,
+            }
+            : {}),
+        },
+        trigger: null,
+      });
+    };
+
     const onNewOrder = (payload: any) => {
+      presentNewOrderNotification(payload).catch((error) => {
+        console.error('Failed to present new order notification', error);
+      });
+
       refreshStoreState(
         'New order received',
         payload?.subscription_id ? `Order #${String(payload.subscription_id).slice(-6).toUpperCase()} is ready` : 'A new order has arrived',
