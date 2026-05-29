@@ -24,7 +24,19 @@ const AUTH_ENDPOINTS = [
 ];
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const payload = response.data;
+    if (
+      payload &&
+      typeof payload === "object" &&
+      !Array.isArray(payload) &&
+      Object.prototype.hasOwnProperty.call(payload, "data") &&
+      Object.keys(payload).length === 1
+    ) {
+      return { ...response, data: payload.data };
+    }
+    return response;
+  },
   (error) => {
     const url = error.config?.url || "";
     const isAuthEndpoint = AUTH_ENDPOINTS.some((ep) => url.includes(ep));
