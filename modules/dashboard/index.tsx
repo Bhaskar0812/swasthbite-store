@@ -162,10 +162,25 @@ export default function DashboardScreen() {
     })[0];
   };
 
+  const isPreparingStatus = (status?: string) => {
+    const value = String(status || '').toLowerCase();
+    return ['preparing', 'assigned', 'accepted'].includes(value);
+  };
+
+  const isOutForDeliveryStatus = (status?: string) => {
+    const value = String(status || '').toLowerCase();
+    return ['out_for_delivery', 'picked_up'].includes(value);
+  };
+
+  const isDeliveredStatus = (status?: string) => {
+    const value = String(status || '').toLowerCase();
+    return ['delivered', 'completed'].includes(value);
+  };
+
   const nextOrder = pickNextOrder();
-  const preparingCount = (dashboard?.today_orders || []).filter((order) => String(order.status || '').toLowerCase() === 'preparing').length;
-  const outForDeliveryCount = (dashboard?.today_orders || []).filter((order) => String(order.status || '').toLowerCase() === 'out_for_delivery').length;
-  const deliveredTodayCount = (dashboard?.today_orders || []).filter((order) => ['delivered', 'completed'].includes(String(order.status || '').toLowerCase())).length;
+  const preparingCount = (dashboard?.today_orders || []).filter((order) => isPreparingStatus(order.status)).length;
+  const outForDeliveryCount = (dashboard?.today_orders || []).filter((order) => isOutForDeliveryStatus(order.status)).length;
+  const deliveredTodayCount = (dashboard?.today_orders || []).filter((order) => isDeliveredStatus(order.status)).length;
   const pastDueInstantCount = (dashboard?.today_orders || []).filter((order) => {
     if (!isInstantOrder(order)) return false;
     const deadline = getInstantDeadline(order);

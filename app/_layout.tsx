@@ -65,7 +65,13 @@ export default function RootLayout() {
   useEffect(() => {
     const responseSub = Notifications.addNotificationResponseReceivedListener((response) => {
       const data = response?.notification?.request?.content?.data as Record<string, any> | undefined;
-      const orderId = String(data?.orderId || '').trim();
+      const orderId = String(
+        data?.orderId ||
+        data?.order_id ||
+        data?.subscription_id ||
+        data?.subscriptionId ||
+        '',
+      ).trim();
       if (!orderId) return;
       router.push(`/order/${orderId}` as any);
     });
@@ -147,6 +153,31 @@ export default function RootLayout() {
       ringTimeoutsRef.current.push(repeatTimeout);
     };
 
+    const presentOrderStatusNotification = async (payload: any, fallbackTitle: string) => {
+      const orderId = String(payload?.order_id ?? payload?.subscription_id ?? '').trim();
+      const rawStatus = String(payload?.status || payload?.delivery_status || '').trim();
+      const statusLabel = rawStatus ? rawStatus.replaceAll('_', ' ') : 'updated';
+
+      await ensureOrdersChannel();
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: fallbackTitle,
+          body: orderId
+            ? `Order #${orderId.slice(-6).toUpperCase()} is now ${statusLabel}`
+            : `Order is now ${statusLabel}`,
+          sound: 'default',
+          data: { orderId },
+          ...(Platform.OS === 'android'
+            ? {
+              channelId: 'orders',
+              priority: Notifications.AndroidNotificationPriority.HIGH,
+            }
+            : {}),
+        },
+        trigger: null,
+      });
+    };
+
     const onNewOrder = (payload: any) => {
       presentNewOrderNotification(payload).catch((error) => {
         console.error('Failed to present new order notification', error);
@@ -159,6 +190,10 @@ export default function RootLayout() {
     };
 
     const onOrderUpdated = (payload: any) => {
+      presentOrderStatusNotification(payload, 'Order status updated').catch((error) => {
+        console.error('Failed to present order status notification', error);
+      });
+
       refreshStoreState(
         'Order updated',
         payload?.status ? `Status changed to ${String(payload.status).replaceAll('_', ' ')}` : 'An order changed',
@@ -179,6 +214,19 @@ export default function RootLayout() {
       );
     };
 
+    const onDeliveryStatus = (payload: any) => {
+      presentOrderStatusNotification(payload, 'Delivery status updated').catch((error) => {
+        console.error('Failed to present delivery status notification', error);
+      });
+
+      refreshStoreState(
+        'Delivery updated',
+        payload?.status
+          ? `Delivery is now ${String(payload.status).replaceAll('_', ' ')}`
+          : 'Delivery status changed',
+      );
+    };
+
     const onStoreToggled = (payload: any) => {
       Toast.show({
         type: payload?.is_online ? 'success' : 'info',
@@ -192,6 +240,7 @@ export default function RootLayout() {
     socket.on('order:updated', onOrderUpdated);
     socket.on('order:cancelled', onOrderCancelled);
     socket.on('delivery:updated', onOrderUpdated);
+    socket.on('delivery:status', onDeliveryStatus);
     socket.on('delivery:rescheduled', onDeliveryRescheduled);
     socket.on('store:toggled', onStoreToggled);
 
@@ -206,6 +255,7 @@ export default function RootLayout() {
       socket.off('order:updated', onOrderUpdated);
       socket.off('order:cancelled', onOrderCancelled);
       socket.off('delivery:updated', onOrderUpdated);
+      socket.off('delivery:status', onDeliveryStatus);
       socket.off('delivery:rescheduled', onDeliveryRescheduled);
       socket.off('store:toggled', onStoreToggled);
       socket.off('connect');

@@ -77,6 +77,21 @@ export default function OrdersScreen() {
     return ['delivered', 'completed', 'cancelled', 'failed', 'skipped'].includes(status);
   };
 
+  const isPreparingStatus = (status?: string) => {
+    const value = String(status || '').toLowerCase();
+    return ['preparing', 'assigned', 'accepted'].includes(value);
+  };
+
+  const isOutForDeliveryStatus = (status?: string) => {
+    const value = String(status || '').toLowerCase();
+    return ['out_for_delivery', 'picked_up'].includes(value);
+  };
+
+  const isDeliveredStatus = (status?: string) => {
+    const value = String(status || '').toLowerCase();
+    return ['delivered', 'completed'].includes(value);
+  };
+
   const sortOrders = (list: DashboardOrder[]) => {
     return [...list].sort((a, b) => {
       const aRank = isInstantOrder(a) ? 0 : isDeliveredOrder(a) ? 2 : 1;
@@ -95,10 +110,13 @@ export default function OrdersScreen() {
     });
   };
 
-  const todayOrders = (dashboard?.today_orders || []).filter((item) => !isTerminalOrder(item));
-  const tomorrowOrders = (dashboard?.tomorrow_orders || []).filter((item) => !isTerminalOrder(item));
+  const todayAllOrders = dashboard?.today_orders || [];
+  const tomorrowAllOrders = dashboard?.tomorrow_orders || [];
+
+  const todayOrders = todayAllOrders.filter((item) => !isTerminalOrder(item));
+  const tomorrowOrders = tomorrowAllOrders.filter((item) => !isTerminalOrder(item));
   const pastOrders = sortOrders(
-    [...(dashboard?.today_orders || []), ...(dashboard?.tomorrow_orders || [])].filter((item) => {
+    [...todayAllOrders, ...tomorrowAllOrders].filter((item) => {
       const status = String(item.status || '').toLowerCase();
       return ['delivered', 'completed', 'cancelled', 'failed', 'skipped'].includes(status);
     }),
@@ -108,9 +126,9 @@ export default function OrdersScreen() {
     tab === 'today' ? todayOrders : tab === 'tomorrow' ? tomorrowOrders : pastOrders,
   );
 
-  const preparingCount = todayOrders.filter((item) => String(item.status || '').toLowerCase() === 'preparing').length;
-  const outForDeliveryCount = todayOrders.filter((item) => String(item.status || '').toLowerCase() === 'out_for_delivery').length;
-  const deliveredTodayCount = todayOrders.filter((item) => ['delivered', 'completed'].includes(String(item.status || '').toLowerCase())).length;
+  const preparingCount = todayAllOrders.filter((item) => isPreparingStatus(item.status)).length;
+  const outForDeliveryCount = todayAllOrders.filter((item) => isOutForDeliveryStatus(item.status)).length;
+  const deliveredTodayCount = todayAllOrders.filter((item) => isDeliveredStatus(item.status)).length;
 
   const getStatusColor = (status: string) => {
     switch (status) {

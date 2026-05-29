@@ -95,16 +95,29 @@ const formatDueTime = (order: DashboardOrder) => {
 
 const getDashboardProgress = (dashboard: DashboardData | null | undefined) => {
   const todayOrders = dashboard?.today_orders || [];
+
+  const isPreparingStatus = (status?: string) => {
+    const value = String(status || "").toLowerCase();
+    return ["preparing", "assigned", "accepted"].includes(value);
+  };
+
+  const isOutForDeliveryStatus = (status?: string) => {
+    const value = String(status || "").toLowerCase();
+    return ["out_for_delivery", "picked_up"].includes(value);
+  };
+
+  const isDeliveredStatus = (status?: string) => {
+    const value = String(status || "").toLowerCase();
+    return ["delivered", "completed"].includes(value);
+  };
+
   const preparing = todayOrders.filter(
-    (order) => String(order.status || "").toLowerCase() === "preparing",
+    (order) => isPreparingStatus(order.status),
   ).length;
   const outForDelivery = todayOrders.filter(
-    (order) => String(order.status || "").toLowerCase() === "out_for_delivery",
+    (order) => isOutForDeliveryStatus(order.status),
   ).length;
-  const delivered = todayOrders.filter((order) => {
-    const status = String(order.status || "").toLowerCase();
-    return status === "delivered" || status === "completed";
-  }).length;
+  const delivered = todayOrders.filter((order) => isDeliveredStatus(order.status)).length;
 
   return { preparing, outForDelivery, delivered };
 };
