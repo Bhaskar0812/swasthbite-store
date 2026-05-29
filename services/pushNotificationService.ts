@@ -21,7 +21,9 @@ export async function registerForPushNotifications(): Promise<string | null> {
       return null;
     }
 
-    const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+    const projectId =
+      Constants.easConfig?.projectId ||
+      Constants.expoConfig?.extra?.eas?.projectId;
     if (!projectId) {
       console.warn("⚠️ EAS projectId not configured — push tokens unavailable");
       return null;

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { AppState } from "react-native";
 import { useAuthStore } from "store/authStore";
 import api from "services/api";
 import {
@@ -19,8 +20,9 @@ export function useSyncPushToken() {
 
     async function syncPushToken() {
       try {
-        let token = await getPushTokenLocally();
-        if (!token) token = await registerForPushNotifications();
+        // Always try refreshing first, then fall back to local cached token.
+        let token = await registerForPushNotifications();
+        if (!token) token = await getPushTokenLocally();
         if (!token || !mounted.current) return;
 
         await api.put("/user/push-token", { push_token: token });
@@ -31,10 +33,19 @@ export function useSyncPushToken() {
     }
 
     if (authToken) {
-      const timeout = setTimeout(syncPushToken, 1500);
+      const timeout = setTimeout(syncPushToken, 1200);
+      const interval = setInterval(syncPushToken, 5 * 60 * 1000);
+      const appStateSub = AppState.addEventListener("change", (state) => {
+        if (state === "active") {
+          syncPushToken().catch(() => null);
+        }
+      });
+
       return () => {
         mounted.current = false;
         clearTimeout(timeout);
+        clearInterval(interval);
+        appStateSub.remove();
       };
     }
   }, [authToken]);
