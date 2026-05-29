@@ -13,7 +13,7 @@ import { pickImageUrl } from 'utils/image';
 
 export default function OrdersScreen() {
   const { dashboard, packages, loading, fetchDashboard, fetchPackages } = useStoreStore();
-  const [tab, setTab] = useState<'today' | 'tomorrow'>('today');
+  const [tab, setTab] = useState<'today' | 'tomorrow' | 'past'>('today');
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -69,7 +69,12 @@ export default function OrdersScreen() {
   const isInstantOrder = (item: DashboardOrder) => item.delivery_mode === 'instant';
   const isDeliveredOrder = (item: DashboardOrder) => {
     const status = String(item.status || '').toLowerCase();
-    return ['delivered', 'completed', 'cancelled'].includes(status);
+    return ['delivered', 'completed', 'cancelled', 'failed'].includes(status);
+  };
+
+  const isTerminalOrder = (item: DashboardOrder) => {
+    const status = String(item.status || '').toLowerCase();
+    return ['delivered', 'completed', 'cancelled', 'failed', 'skipped'].includes(status);
   };
 
   const sortOrders = (list: DashboardOrder[]) => {
@@ -90,7 +95,22 @@ export default function OrdersScreen() {
     });
   };
 
-  const orders = sortOrders(tab === 'today' ? (dashboard?.today_orders || []) : (dashboard?.tomorrow_orders || []));
+  const todayOrders = (dashboard?.today_orders || []).filter((item) => !isTerminalOrder(item));
+  const tomorrowOrders = (dashboard?.tomorrow_orders || []).filter((item) => !isTerminalOrder(item));
+  const pastOrders = sortOrders(
+    [...(dashboard?.today_orders || []), ...(dashboard?.tomorrow_orders || [])].filter((item) => {
+      const status = String(item.status || '').toLowerCase();
+      return ['delivered', 'completed', 'cancelled', 'failed', 'skipped'].includes(status);
+    }),
+  );
+
+  const orders = sortOrders(
+    tab === 'today' ? todayOrders : tab === 'tomorrow' ? tomorrowOrders : pastOrders,
+  );
+
+  const preparingCount = todayOrders.filter((item) => String(item.status || '').toLowerCase() === 'preparing').length;
+  const outForDeliveryCount = todayOrders.filter((item) => String(item.status || '').toLowerCase() === 'out_for_delivery').length;
+  const deliveredTodayCount = todayOrders.filter((item) => ['delivered', 'completed'].includes(String(item.status || '').toLowerCase())).length;
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -277,11 +297,28 @@ export default function OrdersScreen() {
       <View className="w-full bg-blue-600 rounded-b-3xl pb-6 pt-8 px-6 mb-4 shadow-md" style={{ elevation: 6 }}>
         <Text className="text-2xl font-extrabold text-white mb-1 tracking-wide">Orders</Text>
         <Text className="text-base text-blue-100 mb-2">Track and manage your deliveries</Text>
+
+        <View className="flex-row mt-2 mb-2">
+          <View className="flex-1 rounded-xl px-3 py-2 mr-1" style={{ backgroundColor: 'rgba(255,255,255,0.18)' }}>
+            <Text className="text-[11px] text-blue-100">Preparing</Text>
+            <Text className="text-lg font-bold text-white">{preparingCount}</Text>
+          </View>
+          <View className="flex-1 rounded-xl px-3 py-2 mx-1" style={{ backgroundColor: 'rgba(255,255,255,0.18)' }}>
+            <Text className="text-[11px] text-blue-100">Out for delivery</Text>
+            <Text className="text-lg font-bold text-white">{outForDeliveryCount}</Text>
+          </View>
+          <View className="flex-1 rounded-xl px-3 py-2 ml-1" style={{ backgroundColor: 'rgba(255,255,255,0.18)' }}>
+            <Text className="text-[11px] text-blue-100">Delivered today</Text>
+            <Text className="text-lg font-bold text-white">{deliveredTodayCount}</Text>
+          </View>
+        </View>
+
         {/* Tab Switcher */}
         <View className="flex-row bg-blue-100 rounded-xl p-1 mt-2">
           {([
-            { key: 'today' as const, label: `Today (${dashboard?.today_orders?.length || 0})` },
-            { key: 'tomorrow' as const, label: `Tomorrow (${dashboard?.tomorrow_orders?.length || 0})` },
+            { key: 'today' as const, label: `Today (${todayOrders.length})` },
+            { key: 'tomorrow' as const, label: `Tomorrow (${tomorrowOrders.length})` },
+            { key: 'past' as const, label: `Past (${pastOrders.length})` },
           ]).map((t) => (
             <TouchableOpacity
               key={t.key}

@@ -22,7 +22,6 @@ const FINAL_STATUSES = new Set([
   "cancelled",
   "skipped",
 ]);
-const IGNORED_ORDER_STATUSES = new Set(["out_for_delivery"]);
 
 const normalizeText = (value?: string) => {
   const normalized = String(value || "").trim();
@@ -42,7 +41,7 @@ const getSlotRank = (slot?: string) =>
 
 const isActionable = (order: DashboardOrder) => {
   const status = String(order.status || "").toLowerCase();
-  return !FINAL_STATUSES.has(status) && !IGNORED_ORDER_STATUSES.has(status);
+  return !FINAL_STATUSES.has(status);
 };
 
 const isInstantActionable = (order: DashboardOrder) =>
@@ -82,6 +81,32 @@ const formatSlot = (slot?: string) => {
   const normalized = String(slot || "").toLowerCase();
   if (!normalized) return "Scheduled";
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+};
+
+const formatDueTime = (order: DashboardOrder) => {
+  if (String(order.delivery_mode || "").toLowerCase() === "instant") return "Due now";
+  const dateTime = toDateTime(order);
+  if (!dateTime) return formatSlot(order.slot);
+  return new Date(dateTime).toLocaleTimeString("en-IN", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
+
+const getDashboardProgress = (dashboard: DashboardData | null | undefined) => {
+  const todayOrders = dashboard?.today_orders || [];
+  const preparing = todayOrders.filter(
+    (order) => String(order.status || "").toLowerCase() === "preparing",
+  ).length;
+  const outForDelivery = todayOrders.filter(
+    (order) => String(order.status || "").toLowerCase() === "out_for_delivery",
+  ).length;
+  const delivered = todayOrders.filter((order) => {
+    const status = String(order.status || "").toLowerCase();
+    return status === "delivered" || status === "completed";
+  }).length;
+
+  return { preparing, outForDelivery, delivered };
 };
 
 const pickNextOrder = (
@@ -146,7 +171,10 @@ const getOrderStatusLabel = (order: DashboardOrder) => {
   }
 };
 
-const buildAndroidBody = (order: DashboardOrder) => {
+const buildAndroidBody = (
+  order: DashboardOrder,
+  dashboard: DashboardData | null | undefined,
+) => {
   const mode =
     String(order.delivery_mode || "").toLowerCase() === "instant"
       ? "Instant"
@@ -154,6 +182,9 @@ const buildAndroidBody = (order: DashboardOrder) => {
   const customer = normalizeText(order.user_name);
   const statusLabel = getOrderStatusLabel(order);
   const orderId = getOrderId(order);
+  const due = formatDueTime(order);
+  const progress = getDashboardProgress(dashboard);
+  const progressLine = `Prep ${progress.preparing} | Out ${progress.outForDelivery} | Done ${progress.delivered}`;
 
   if (mode === "Instant") {
     const countdown = formatInstantCountdown(getInstantDeadline(order));
@@ -161,7 +192,9 @@ const buildAndroidBody = (order: DashboardOrder) => {
       mode,
       statusLabel,
       countdown,
+      due,
       customer,
+      progressLine,
       orderId ? `#${orderId.slice(-6).toUpperCase()}` : "",
     ]
       .filter(Boolean)
@@ -171,7 +204,9 @@ const buildAndroidBody = (order: DashboardOrder) => {
   return [
     mode,
     statusLabel,
+    `Due ${due}`,
     customer,
+    progressLine,
     orderId ? `#${orderId.slice(-6).toUpperCase()}` : "",
   ]
     .filter(Boolean)
@@ -180,6 +215,7 @@ const buildAndroidBody = (order: DashboardOrder) => {
 
 const toLiveActivityState = (
   order: DashboardOrder,
+  dashboard: DashboardData | null | undefined,
 ): LiveActivity.LiveActivityState => {
   const title = `Next: ${getOrderTitle(order)}`;
   const statusLabel = getOrderStatusLabel(order);
@@ -188,7 +224,19 @@ const toLiveActivityState = (
       ? "Instant"
       : formatSlot(order.slot);
   const customer = normalizeText(order.user_name);
-  const subtitle = [mode, statusLabel, customer].filter(Boolean).join(" • ");
+  const due = formatDueTime(order);
+  const progress = getDashboardProgress(dashboard);
+  const subtitle = [
+    mode,
+    statusLabel,
+    `Due ${due}`,
+    customer,
+    `Prep ${progress.preparing}`,
+    `Out ${progress.outForDelivery}`,
+    `Done ${progress.delivered}`,
+  ]
+    .filter(Boolean)
+    .join(" • ");
 
   const deadline = getInstantDeadline(order);
   if (deadline > Date.now()) {
@@ -207,7 +255,10 @@ const toLiveActivityState = (
   };
 };
 
-const syncIosLiveActivity = async (order: DashboardOrder | null) => {
+const syncIosLiveActivity = async (
+  order: DashboardOrder | null,
+  dashboard: DashboardData | null | undefined,
+) => {
   const existingActivityId = await AsyncStorage.getItem(IOS_ACTIVITY_ID_KEY);
   const existingOrderId = await AsyncStorage.getItem(IOS_ACTIVITY_ORDER_KEY);
 
@@ -226,7 +277,7 @@ const syncIosLiveActivity = async (order: DashboardOrder | null) => {
   }
 
   const orderId = getOrderId(order);
-  const state = toLiveActivityState(order);
+  const state = toLiveActivityState(order, dashboard);
   const config: LiveActivity.LiveActivityConfig = {
     deepLinkUrl: orderId ? `/order/${orderId}` : "/(tabs)/orders",
     backgroundColor: "#0B57D0",
@@ -262,7 +313,7 @@ export async function syncOngoingNextOrderActivity(
     const order = pickNextOrder(dashboard);
 
     if (Platform.OS === "ios") {
-      await syncIosLiveActivity(order);
+      await syncIosLiveActivity(order, dashboard);
       return;
     }
 
@@ -281,7 +332,7 @@ export async function syncOngoingNextOrderActivity(
       identifier: ONGOING_NOTIFICATION_ID,
       content: {
         title: `Next order: ${getOrderTitle(order)}`,
-        body: buildAndroidBody(order),
+        body: buildAndroidBody(order, dashboard),
         data: {
           type: "ongoing_next_order",
           orderId: getOrderId(order),

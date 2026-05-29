@@ -22,10 +22,16 @@ import { pickImageUrl } from 'utils/image';
 export default function DashboardScreen() {
   const { dashboard, packages, isOnline, loading, fetchDashboard, fetchPackages, toggleOnline } = useStoreStore();
   const user = useAuthStore((s) => s.user);
+  const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
     fetchDashboard();
     fetchPackages();
+  }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
   }, []);
 
   const onRefresh = useCallback(() => {
@@ -87,7 +93,7 @@ export default function DashboardScreen() {
 
     if (!deadlineAt) return 'Instant';
 
-    const remainingMs = Math.max(0, deadlineAt - Date.now());
+    const remainingMs = Math.max(0, deadlineAt - now);
     if (remainingMs <= 0) return 'Expired';
 
     const totalSeconds = Math.floor(remainingMs / 1000);
@@ -102,16 +108,69 @@ export default function DashboardScreen() {
 
   const dashboardNextActions = (status: string) => {
     switch (String(status || '').toLowerCase()) {
+      case 'pending':
+        return [{ label: 'Accept and Start Preparing', value: 'preparing' }];
       case 'scheduled':
-        return [{ label: 'Mark as Preparing', value: 'preparing' }];
+        return [{ label: 'Start Preparing', value: 'preparing' }];
       case 'preparing':
-        return [{ label: 'Out for Delivery', value: 'out_for_delivery' }];
+        return [{ label: 'Mark Out for Delivery', value: 'out_for_delivery' }];
       case 'out_for_delivery':
         return [];
       default:
         return [];
     }
   };
+
+  const isFinalStatus = (status?: string) =>
+    ['delivered', 'completed', 'cancelled', 'skipped', 'missed'].includes(String(status || '').toLowerCase());
+
+  const getInstantDeadline = (order: DashboardOrder) => {
+    if (!isInstantOrder(order)) return 0;
+    if (order.instant_deadline_at) {
+      const parsed = new Date(order.instant_deadline_at).getTime();
+      if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+    }
+    const createdAt = order.createdAt ? new Date(order.createdAt).getTime() : 0;
+    return createdAt ? createdAt + 60 * 60 * 1000 : 0;
+  };
+
+  const getActionableOrders = () =>
+    [
+      ...(dashboard?.today_orders || []),
+      ...(dashboard?.tomorrow_orders || []),
+    ].filter((order) => !isFinalStatus(order.status));
+
+  const pickNextOrder = () => {
+    const actionable = getActionableOrders();
+    if (!actionable.length) return null;
+
+    const instant = actionable
+      .filter((order) => isInstantOrder(order))
+      .sort((a, b) => {
+        const aDeadline = getInstantDeadline(a);
+        const bDeadline = getInstantDeadline(b);
+        if (aDeadline !== bDeadline) return aDeadline - bDeadline;
+        return new Date(a.createdAt || a.date || 0).getTime() - new Date(b.createdAt || b.date || 0).getTime();
+      })[0];
+
+    if (instant) return instant;
+
+    return actionable.sort((a, b) => {
+      const aDate = new Date(a.date || a.createdAt || 0).getTime();
+      const bDate = new Date(b.date || b.createdAt || 0).getTime();
+      return aDate - bDate;
+    })[0];
+  };
+
+  const nextOrder = pickNextOrder();
+  const preparingCount = (dashboard?.today_orders || []).filter((order) => String(order.status || '').toLowerCase() === 'preparing').length;
+  const outForDeliveryCount = (dashboard?.today_orders || []).filter((order) => String(order.status || '').toLowerCase() === 'out_for_delivery').length;
+  const deliveredTodayCount = (dashboard?.today_orders || []).filter((order) => ['delivered', 'completed'].includes(String(order.status || '').toLowerCase())).length;
+  const pastDueInstantCount = (dashboard?.today_orders || []).filter((order) => {
+    if (!isInstantOrder(order)) return false;
+    const deadline = getInstantDeadline(order);
+    return deadline > 0 && deadline <= now && !isFinalStatus(order.status);
+  }).length;
 
   const resolveOrderApiIds = (order: DashboardOrder) => {
     const candidates = [
@@ -379,7 +438,7 @@ export default function DashboardScreen() {
               })()}
 
               {dashboardNextActions(currentStatus).length ? (
-                <View className="flex-row flex-wrap mt-3">
+                <View className="mt-3">
                   {dashboardNextActions(currentStatus).map((action) => {
                     const key = `${order._id}-${action.value}`;
                     return (
@@ -390,13 +449,23 @@ export default function DashboardScreen() {
                           updateOrderStatus(order, action.value);
                         }}
                         disabled={Boolean(updatingOrder)}
-                        className="mr-2 mb-2 rounded-full px-3 py-2"
+                        className="mb-2 rounded-2xl px-3 py-3 flex-row items-center justify-center"
                         style={{
-                          backgroundColor: action.value === 'out_for_delivery' ? '#E3F2FD' : '#E3F2FD',
+                          backgroundColor: action.value === 'out_for_delivery' ? '#E8F5E9' : '#DBEAFE',
+                          borderWidth: 1,
+                          borderColor: action.value === 'out_for_delivery' ? '#81C784' : '#60A5FA',
                           opacity: updatingOrder ? 0.6 : 1,
                         }}
                       >
-                        <Text className="text-xs font-semibold" style={{ color: Colors.info }}>
+                        <Ionicons
+                          name={action.value === 'out_for_delivery' ? 'bicycle-outline' : 'checkmark-circle-outline'}
+                          size={14}
+                          color={action.value === 'out_for_delivery' ? '#1B5E20' : '#1D4ED8'}
+                        />
+                        <Text
+                          className="text-xs font-bold ml-1.5"
+                          style={{ color: action.value === 'out_for_delivery' ? '#1B5E20' : '#1D4ED8' }}
+                        >
                           {action.label}
                         </Text>
                       </TouchableOpacity>
@@ -475,6 +544,73 @@ export default function DashboardScreen() {
               icon="trending-up"
               color={Colors.warning}
             />
+          </View>
+        </View>
+
+        {/* Live Order Activity */}
+        <View className="bg-white rounded-3xl p-4 mb-4" style={{ borderWidth: 1, borderColor: '#DCE6FF' }}>
+          <View className="flex-row items-center justify-between mb-3">
+            <View className="flex-row items-center">
+              <View className="w-9 h-9 rounded-xl items-center justify-center" style={{ backgroundColor: '#E8EEFF' }}>
+                <Ionicons name="notifications" size={18} color="#1D4ED8" />
+              </View>
+              <View className="ml-2">
+                <Text className="text-sm font-semibold text-textSecondary">Live Activity</Text>
+                <Text className="text-base font-bold text-textPrimary">Next order status board</Text>
+              </View>
+            </View>
+            {pastDueInstantCount > 0 ? (
+              <View className="px-2.5 py-1 rounded-full" style={{ backgroundColor: '#FEE2E2' }}>
+                <Text className="text-[11px] font-bold" style={{ color: '#B91C1C' }}>
+                  {pastDueInstantCount} urgent
+                </Text>
+              </View>
+            ) : null}
+          </View>
+
+          {nextOrder ? (
+            <View className="rounded-2xl p-3 mb-3" style={{ backgroundColor: isInstantOrder(nextOrder) ? '#EFF6FF' : '#F8FAFC' }}>
+              <View className="flex-row items-center justify-between">
+                <Text className="text-sm font-bold text-textPrimary flex-1 pr-2" numberOfLines={1}>
+                  {getOrderTitle(nextOrder)}
+                </Text>
+                <View className="px-2 py-1 rounded-full" style={{ backgroundColor: '#E2E8F0' }}>
+                  <Text className="text-[10px] font-semibold text-slate-700 capitalize">
+                    {String(nextOrder.status || 'scheduled').replaceAll('_', ' ')}
+                  </Text>
+                </View>
+              </View>
+              <View className="flex-row items-center justify-between mt-2">
+                <Text className="text-xs text-textSecondary" numberOfLines={1}>
+                  {nextOrder.delivery_mode === 'instant' ? 'Instant order' : `Slot: ${nextOrder.slot || 'scheduled'}`}
+                </Text>
+                <View className="flex-row items-center">
+                  <Ionicons name="timer-outline" size={13} color={Colors.info} />
+                  <Text className="text-xs font-bold ml-1" style={{ color: Colors.info }}>
+                    {getInstantCountdown(nextOrder) || 'Scheduled'}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          ) : (
+            <View className="rounded-2xl p-3 mb-3" style={{ backgroundColor: '#F8FAFC' }}>
+              <Text className="text-sm text-textSecondary">No active order right now. Waiting for next order.</Text>
+            </View>
+          )}
+
+          <View className="flex-row">
+            <View className="flex-1 rounded-2xl px-3 py-2 mr-1" style={{ backgroundColor: '#EFF6FF' }}>
+              <Text className="text-[11px] text-textSecondary">Preparing</Text>
+              <Text className="text-lg font-bold" style={{ color: '#1D4ED8' }}>{preparingCount}</Text>
+            </View>
+            <View className="flex-1 rounded-2xl px-3 py-2 mx-1" style={{ backgroundColor: '#ECFDF3' }}>
+              <Text className="text-[11px] text-textSecondary">Out for delivery</Text>
+              <Text className="text-lg font-bold" style={{ color: '#047857' }}>{outForDeliveryCount}</Text>
+            </View>
+            <View className="flex-1 rounded-2xl px-3 py-2 ml-1" style={{ backgroundColor: '#FFF7ED' }}>
+              <Text className="text-[11px] text-textSecondary">Delivered today</Text>
+              <Text className="text-lg font-bold" style={{ color: '#C2410C' }}>{deliveredTodayCount}</Text>
+            </View>
           </View>
         </View>
 
