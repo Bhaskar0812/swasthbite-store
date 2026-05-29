@@ -12,9 +12,7 @@
       "resizeMode": "contain",
       "backgroundColor": "#3B82F6"
     },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.swasthbite.store",
@@ -24,10 +22,9 @@
       },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "UIBackgroundModes": [
-          "remote-notification",
-          "remote-notification"
-        ]
+        "NSSupportsLiveActivities": true,
+        "NSSupportsLiveActivitiesFrequentUpdates": true,
+        "UIBackgroundModes": ["remote-notification", "remote-notification"]
       }
     },
     "android": {
@@ -37,10 +34,7 @@
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#3B82F6"
       },
-      "permissions": [
-        "POST_NOTIFICATIONS",
-        "POST_NOTIFICATIONS"
-      ]
+      "permissions": ["POST_NOTIFICATIONS", "POST_NOTIFICATIONS"]
     },
     "experiments": {
       "tsconfigPaths": true
@@ -66,6 +60,12 @@
         }
       ],
       "expo-image",
+      [
+        "expo-live-activity",
+        {
+          "enablePushNotifications": true
+        }
+      ],
       [
         "expo-build-properties",
         {

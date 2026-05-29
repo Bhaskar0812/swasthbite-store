@@ -1,8 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
-import { View, Text, FlatList, RefreshControl, TouchableOpacity } from 'react-native';
+import { View, Text, FlatList, RefreshControl, TouchableOpacity, Alert, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import api from 'services/api';
+import { useAuthStore } from 'store/authStore';
 import { storeService } from 'services/storeService';
 import { Colors } from 'constants/theme';
 import type { Settlement, Penalty } from 'types';
@@ -161,10 +163,56 @@ export default function FinanceScreen() {
   const handleDownloadPDF = async (settlementId: string) => {
     try {
       setDownloadingId(settlementId);
-      await storeService.downloadSettlementPDF(settlementId);
-      console.log('PDF downloaded:', settlementId);
+      const token = useAuthStore.getState().token;
+      const url = `${api.defaults.baseURL}/store/settlements/${settlementId}/pdf`;
+      // Lazy-load optional native modules so older binaries don't crash on screen open.
+      let FileSystem: any = null;
+      let Sharing: any = null;
+      try {
+        FileSystem = await import('expo-file-system');
+        Sharing = await import('expo-sharing');
+      } catch {
+        FileSystem = null;
+        Sharing = null;
+      }
+
+      const canUseFileApis =
+        !!FileSystem?.File &&
+        !!FileSystem?.Paths?.cache &&
+        typeof FileSystem?.File?.downloadFileAsync === 'function';
+
+      if (!canUseFileApis) {
+        const canOpen = await Linking.canOpenURL(url);
+        if (canOpen) {
+          await Linking.openURL(url);
+          return;
+        }
+        Alert.alert('Download unavailable', 'Please update the app to download settlement PDFs.');
+        return;
+      }
+
+      const file = new FileSystem.File(
+        FileSystem.Paths.cache,
+        `settlement-${settlementId}.pdf`,
+      );
+
+      await FileSystem.File.downloadFileAsync(url, file, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+
+      const sharingAvailable = Sharing && (await Sharing.isAvailableAsync());
+      if (sharingAvailable) {
+        await Sharing.shareAsync(file.uri, {
+          mimeType: 'application/pdf',
+          UTI: 'com.adobe.pdf',
+          dialogTitle: 'Share settlement PDF',
+        });
+      } else {
+        Alert.alert('Downloaded', `Saved to ${file.uri}`);
+      }
     } catch (err) {
       console.error('PDF download error:', err);
+      Alert.alert('Error', 'Could not download the settlement PDF.');
     } finally {
       setDownloadingId(null);
     }
@@ -181,10 +229,10 @@ export default function FinanceScreen() {
 
     return (
       <View className="flex-1 rounded-xl p-3" style={{ backgroundColor: styles.bg }}>
-        <Text className="text-[11px]" style={{ color: Colors.textSecondary }}>
+        <Text className="text-xs" style={{ color: Colors.textSecondary }}>
           {label}
         </Text>
-        <Text className="text-base font-bold mt-1" style={{ color: styles.color }}>
+        <Text className="text-lg font-bold mt-1" style={{ color: styles.color }}>
           {value}
         </Text>
       </View>
@@ -195,20 +243,20 @@ export default function FinanceScreen() {
     if (tab === 'ledger') {
       return (
         <View className="mx-4 mb-3 mt-2 bg-white rounded-xl p-3">
-          <Text className="text-xs text-textSecondary mb-2">Earnings Summary</Text>
+          <Text className="text-sm text-textSecondary mb-2">Earnings Summary</Text>
           <View className="flex-row gap-2">
             <StatCard label="Current Cycle" value={formatMoney(ledgerEarningSummary.currentCycle)} tone="blue" />
             <StatCard label="Till Now" value={formatMoney(ledgerEarningSummary.totalTillNow)} tone="green" />
             <StatCard label="Today" value={formatMoney(ledgerEarningSummary.today)} tone="amber" />
           </View>
-          <Text className="text-[10px] text-textTertiary mt-2">Cycle start: {formatDate(cycleStart)}</Text>
+          <Text className="text-xs text-textTertiary mt-2">Cycle start: {formatDate(cycleStart)}</Text>
         </View>
       );
     }
     if (tab === 'expenses') {
       return (
         <View className="mx-4 mb-3 mt-2 bg-white rounded-xl p-3">
-          <Text className="text-xs text-textSecondary mb-2">Expense Summary</Text>
+          <Text className="text-sm text-textSecondary mb-2">Expense Summary</Text>
           <View className="flex-row gap-2">
             <StatCard label="This Week" value={formatMoney(expenseSummary.weekly)} tone="amber" />
             <StatCard label="This Month" value={formatMoney(expenseSummary.monthly)} tone="blue" />
@@ -243,10 +291,10 @@ export default function FinanceScreen() {
         {/* Header */}
         <View className="bg-slate-50 p-4 flex-row justify-between items-center border-b border-slate-100">
           <View className="flex-1">
-            <Text className="text-sm font-bold text-textPrimary">
+            <Text className="text-base font-bold text-textPrimary">
               {formatDate(item.period_start)} - {formatDate(item.period_end)}
             </Text>
-            <Text className="text-xs text-textTertiary mt-0.5">{toAmount((item as any)?.total_orders || 0)} orders</Text>
+            <Text className="text-sm text-textTertiary mt-0.5">{toAmount((item as any)?.total_orders || 0)} orders</Text>
           </View>
           <View className="flex-col items-end gap-1">
             <View
@@ -255,17 +303,12 @@ export default function FinanceScreen() {
                 backgroundColor: isClosed ? Colors.success + '15' : Colors.warning + '15',
               }}
             >
-              <Text
-                className="text-xs font-semibold capitalize"
-                style={{
-                  color: isClosed ? Colors.success : Colors.warning,
-                }}
-              >
+              <Text className="text-sm font-semibold capitalize" style={{ color: isClosed ? Colors.success : Colors.warning }}>
                 {prettyType(status)}
               </Text>
             </View>
             {settled > 0 && (
-              <Text className="text-[10px] text-textTertiary">Settled: {formatMoney(settled)}</Text>
+              <Text className="text-xs text-textTertiary">Settled: {formatMoney(settled)}</Text>
             )}
           </View>
         </View>
@@ -274,48 +317,48 @@ export default function FinanceScreen() {
         <View className="p-4">
           {/* Gross */}
           <View className="flex-row justify-between items-center mb-2">
-            <Text className="text-sm text-textSecondary">Gross Order Value</Text>
-            <Text className="text-sm font-semibold text-textPrimary">{formatMoney(gross)}</Text>
+            <Text className="text-base text-textSecondary">Gross Order Value</Text>
+            <Text className="text-base font-semibold text-textPrimary">{formatMoney(gross)}</Text>
           </View>
 
           {/* Deductions Breakdown */}
           {totalDed > 0 && (
             <View className="mb-2 bg-red-50 rounded-lg p-2">
-              <Text className="text-xs font-semibold text-red-700 mb-1">Deductions: -{formatMoney(totalDed)}</Text>
+              <Text className="text-sm font-semibold text-red-700 mb-1">Deductions: -{formatMoney(totalDed)}</Text>
               {commissionDed > 0 && (
                 <View className="flex-row justify-between ml-2 mb-0.5">
-                  <Text className="text-xs text-textSecondary">Commission</Text>
-                  <Text className="text-xs text-red-700">-{formatMoney(commissionDed)}</Text>
+                  <Text className="text-sm text-textSecondary">Commission</Text>
+                  <Text className="text-sm text-red-700">-{formatMoney(commissionDed)}</Text>
                 </View>
               )}
               {penaltyDed > 0 && (
                 <View className="flex-row justify-between ml-2 mb-0.5">
-                  <Text className="text-xs text-textSecondary">Penalties</Text>
-                  <Text className="text-xs text-red-700">-{formatMoney(penaltyDed)}</Text>
+                  <Text className="text-sm text-textSecondary">Penalties</Text>
+                  <Text className="text-sm text-red-700">-{formatMoney(penaltyDed)}</Text>
                 </View>
               )}
               {deliveryDed > 0 && (
                 <View className="flex-row justify-between ml-2 mb-0.5">
-                  <Text className="text-xs text-textSecondary">Delivery</Text>
-                  <Text className="text-xs text-red-700">-{formatMoney(deliveryDed)}</Text>
+                  <Text className="text-sm text-textSecondary">Delivery</Text>
+                  <Text className="text-sm text-red-700">-{formatMoney(deliveryDed)}</Text>
                 </View>
               )}
               {refundDed > 0 && (
                 <View className="flex-row justify-between ml-2 mb-0.5">
-                  <Text className="text-xs text-textSecondary">Refunds</Text>
-                  <Text className="text-xs text-red-700">-{formatMoney(refundDed)}</Text>
+                  <Text className="text-sm text-textSecondary">Refunds</Text>
+                  <Text className="text-sm text-red-700">-{formatMoney(refundDed)}</Text>
                 </View>
               )}
               {promoDed > 0 && (
                 <View className="flex-row justify-between ml-2 mb-0.5">
-                  <Text className="text-xs text-textSecondary">Promo Wallet</Text>
-                  <Text className="text-xs text-red-700">-{formatMoney(promoDed)}</Text>
+                  <Text className="text-sm text-textSecondary">Promo Wallet</Text>
+                  <Text className="text-sm text-red-700">-{formatMoney(promoDed)}</Text>
                 </View>
               )}
               {cashUpiAdj > 0 && (
                 <View className="flex-row justify-between ml-2 mb-0.5">
-                  <Text className="text-xs text-textSecondary">Cash/UPI Direct Payment</Text>
-                  <Text className="text-xs text-red-700">-{formatMoney(cashUpiAdj)}</Text>
+                  <Text className="text-sm text-textSecondary">Cash/UPI Direct Payment</Text>
+                  <Text className="text-sm text-red-700">-{formatMoney(cashUpiAdj)}</Text>
                 </View>
               )}
             </View>
@@ -323,15 +366,15 @@ export default function FinanceScreen() {
 
           {/* Net Amount */}
           <View className="flex-row justify-between items-center mb-2 p-2 bg-emerald-50 rounded-lg">
-            <Text className="text-sm font-semibold text-textPrimary">Net Amount</Text>
-            <Text className="text-sm font-bold text-success">{formatMoney(net)}</Text>
+            <Text className="text-base font-semibold text-textPrimary">Net Amount</Text>
+            <Text className="text-base font-bold text-success">{formatMoney(net)}</Text>
           </View>
 
           {/* Carry Forward */}
           {carryFwd !== 0 && (
             <View className="flex-row justify-between items-center mb-2">
-              <Text className="text-sm text-textSecondary">Carry Forward</Text>
-              <Text className={`text-sm font-semibold ${carryFwd > 0 ? 'text-info' : 'text-error'}`}>
+              <Text className="text-base text-textSecondary">Carry Forward</Text>
+              <Text className={`text-base font-semibold ${carryFwd > 0 ? 'text-info' : 'text-error'}`}>
                 {carryFwd > 0 ? '+' : ''}{formatMoney(carryFwd)}
               </Text>
             </View>
@@ -339,8 +382,8 @@ export default function FinanceScreen() {
 
           {/* Payable Amount - Highlighted */}
           <View className="flex-row justify-between items-center p-3 bg-blue-50 rounded-lg border border-blue-200">
-            <Text className="text-sm font-bold text-blue-900">Payable Amount</Text>
-            <Text className="text-lg font-bold text-blue-700">{formatMoney(payable)}</Text>
+            <Text className="text-base font-bold text-blue-900">Payable Amount</Text>
+            <Text className="text-xl font-bold text-blue-700">{formatMoney(payable)}</Text>
           </View>
         </View>
 
@@ -358,7 +401,7 @@ export default function FinanceScreen() {
               color={Colors.info}
               style={{ marginRight: 6 }}
             />
-            <Text className="text-xs font-semibold" style={{ color: Colors.info }}>
+            <Text className="text-sm font-semibold" style={{ color: Colors.info }}>
               {downloadingId === (item as any)._id ? 'Downloading...' : 'PDF'}
             </Text>
           </TouchableOpacity>
@@ -368,7 +411,7 @@ export default function FinanceScreen() {
               style={{ backgroundColor: Colors.success + '15' }}
             >
               <Ionicons name="checkmark-circle-outline" size={14} color={Colors.success} style={{ marginRight: 6 }} />
-              <Text className="text-xs font-semibold" style={{ color: Colors.success }}>
+              <Text className="text-sm font-semibold" style={{ color: Colors.success }}>
                 Pay
               </Text>
             </TouchableOpacity>

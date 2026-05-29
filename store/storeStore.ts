@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { storeService } from "services/storeService";
+import { syncOngoingNextOrderActivity } from 'services/ongoingOrderActivityService';
 import type { DashboardData, MenuItem, Package } from "types";
 
 type StoreState = {
@@ -37,6 +38,7 @@ export const useStoreStore = create<StoreState>((set, get) => ({
         isOnline: res.data?.is_online ?? false,
         loading: false,
       });
+      await syncOngoingNextOrderActivity(res.data);
     } catch {
       set({ loading: false });
     }

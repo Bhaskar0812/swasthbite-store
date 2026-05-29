@@ -16,6 +16,7 @@ export const storeService = {
   },
   updateStoreHours: async (data: {
     enabled: boolean;
+    manual_mode_enabled: boolean;
     timezone?: string;
     weekly: Array<{
       day_index: number;

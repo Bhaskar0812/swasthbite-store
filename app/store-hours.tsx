@@ -56,6 +56,7 @@ const defaultWeekly = (): DayRow[] =>
 
 export default function StoreHoursScreen() {
   const [enabled, setEnabled] = useState(false);
+  const [manualModeEnabled, setManualModeEnabled] = useState(false);
   const [openNow, setOpenNow] = useState(false);
   const [weekly, setWeekly] = useState<DayRow[]>(defaultWeekly());
   const [repeatForWeek, setRepeatForWeek] = useState(true);
@@ -75,6 +76,7 @@ export default function StoreHoursScreen() {
       const hours = res.data?.operating_hours || {};
       const weeklyHours = Array.isArray(hours.weekly) && hours.weekly.length === 7 ? hours.weekly : defaultWeekly();
       setEnabled(Boolean(hours.enabled));
+      setManualModeEnabled(Boolean(hours.manual_mode_enabled));
       setOpenNow(Boolean(res.data?.open_now));
       setWeekly(
         DAYS.map((day) => {
@@ -173,6 +175,7 @@ export default function StoreHoursScreen() {
       setSaving(true);
       const res = await storeService.updateStoreHours({
         enabled,
+        manual_mode_enabled: manualModeEnabled,
         timezone: 'Asia/Kolkata',
         weekly,
       });
@@ -199,8 +202,8 @@ export default function StoreHoursScreen() {
         <View className="bg-blue-600 rounded-3xl p-4 mb-4">
           <View className="flex-row items-center justify-between">
             <View className="flex-1 pr-3">
-              <Text className="text-white text-lg font-bold">Weekly schedule</Text>
-              <Text className="text-blue-100 text-sm mt-1">Set day-wise open and close times for your store.</Text>
+              <Text className="text-white text-xl font-bold">Weekly schedule</Text>
+              <Text className="text-blue-100 text-base mt-1">Set day-wise open and close times for your store.</Text>
             </View>
             <View className="items-end">
               <Text className="text-blue-100 text-xs">Current</Text>
@@ -223,14 +226,27 @@ export default function StoreHoursScreen() {
 
           <View className="flex-row items-center justify-between mt-3 bg-white/10 rounded-2xl px-4 py-3">
             <View className="flex-1 pr-3">
-              <Text className="text-white font-semibold">Repeat same time for week</Text>
-              <Text className="text-blue-100 text-xs mt-0.5">Pick one day and apply it to all open days.</Text>
+              <Text className="text-white text-base font-semibold">Repeat same time for week</Text>
+              <Text className="text-blue-100 text-sm mt-0.5">Pick one day and apply it to all open days.</Text>
             </View>
             <Switch
               value={repeatForWeek}
               onValueChange={setRepeatForWeek}
               trackColor={{ false: '#D1D5DB', true: '#93C5FD' }}
               thumbColor={repeatForWeek ? '#fff' : '#fff'}
+            />
+          </View>
+
+          <View className="flex-row items-center justify-between mt-3 bg-white/10 rounded-2xl px-4 py-3">
+            <View className="flex-1 pr-3">
+              <Text className="text-white text-base font-semibold">Manage manually</Text>
+              <Text className="text-blue-100 text-sm mt-0.5">Keep the store open or closed until you change it yourself. Auto-close stays off.</Text>
+            </View>
+            <Switch
+              value={manualModeEnabled}
+              onValueChange={setManualModeEnabled}
+              trackColor={{ false: '#D1D5DB', true: '#93C5FD' }}
+              thumbColor={manualModeEnabled ? '#fff' : '#fff'}
             />
           </View>
         </View>
@@ -244,8 +260,8 @@ export default function StoreHoursScreen() {
             <View key={day.day_index} className="bg-white rounded-2xl p-4 mb-3 shadow-sm" style={{ elevation: 2 }}>
               <View className="flex-row items-center justify-between mb-3">
                 <View>
-                  <Text className="text-base font-bold text-textPrimary">{day.label}</Text>
-                  <Text className="text-xs text-textSecondary mt-0.5">Set opening hours for this day</Text>
+                  <Text className="text-lg font-bold text-textPrimary">{day.label}</Text>
+                  <Text className="text-sm text-textSecondary mt-0.5">Set opening hours for this day</Text>
                 </View>
                 <Switch value={day.is_open} onValueChange={(value) => updateRow(index, 'is_open', value)} trackColor={{ false: '#E5E7EB', true: Colors.success + '55' }} thumbColor={day.is_open ? Colors.success : '#9CA3AF'} />
               </View>
@@ -256,9 +272,9 @@ export default function StoreHoursScreen() {
                     <Text className="text-xs text-textSecondary mb-1">Open</Text>
                     <TouchableOpacity
                       onPress={() => openPicker(index, 'open_time', day.open_time)}
-                      className="bg-slate-50 rounded-xl px-3 py-3 flex-row items-center justify-between"
+                      className="bg-slate-50 rounded-2xl px-4 py-4 flex-row items-center justify-between"
                     >
-                      <Text className="text-textPrimary font-medium">{day.open_time}</Text>
+                      <Text className="text-textPrimary text-base font-semibold">{day.open_time}</Text>
                       <Ionicons name="time-outline" size={16} color={Colors.textTertiary} />
                     </TouchableOpacity>
                   </View>
@@ -266,9 +282,9 @@ export default function StoreHoursScreen() {
                     <Text className="text-xs text-textSecondary mb-1">Close</Text>
                     <TouchableOpacity
                       onPress={() => openPicker(index, 'close_time', day.close_time)}
-                      className="bg-slate-50 rounded-xl px-3 py-3 flex-row items-center justify-between"
+                      className="bg-slate-50 rounded-2xl px-4 py-4 flex-row items-center justify-between"
                     >
-                      <Text className="text-textPrimary font-medium">{day.close_time}</Text>
+                      <Text className="text-textPrimary text-base font-semibold">{day.close_time}</Text>
                       <Ionicons name="time-outline" size={16} color={Colors.textTertiary} />
                     </TouchableOpacity>
                   </View>
@@ -284,8 +300,8 @@ export default function StoreHoursScreen() {
                   {day.is_open ? 'Use copy to week for same timings' : 'Enable this day to set hours'}
                 </Text>
                 {day.is_open ? (
-                  <TouchableOpacity onPress={() => applyRowToWeek(index)} className="px-3 py-2 rounded-xl" style={{ backgroundColor: Colors.info + '15' }}>
-                    <Text className="text-xs font-semibold" style={{ color: Colors.info }}>Apply to week</Text>
+                  <TouchableOpacity onPress={() => applyRowToWeek(index)} className="px-4 py-3 rounded-2xl" style={{ backgroundColor: Colors.info + '15' }}>
+                    <Text className="text-sm font-semibold" style={{ color: Colors.info }}>Apply to week</Text>
                   </TouchableOpacity>
                 ) : null}
               </View>
@@ -299,7 +315,7 @@ export default function StoreHoursScreen() {
           className="rounded-2xl py-4 items-center mt-2"
           style={{ backgroundColor: Colors.primary }}
         >
-          <Text className="text-white font-bold">{saving ? 'Saving...' : 'Save Store Hours'}</Text>
+          <Text className="text-white text-base font-bold">{saving ? 'Saving...' : 'Save Store Hours'}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => router.back()} className="py-4 items-center mt-2">

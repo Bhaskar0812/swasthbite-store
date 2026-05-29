@@ -8,7 +8,7 @@ export const connectSocket = (token: string) => {
   socket = io("https://api.swasthbite.in", {
     auth: { token },
     query: { role: "store" },
-    transports: ["websocket"],
+    transports: ["polling", "websocket"],
     reconnection: true,
     reconnectionAttempts: 10,
     reconnectionDelay: 2000,

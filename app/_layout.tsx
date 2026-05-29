@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { AppState } from 'react-native';
-import { Stack } from 'expo-router';
+import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as Notifications from 'expo-notifications';
 import * as SplashScreen from 'expo-splash-screen';
@@ -8,6 +8,7 @@ import { useAuthStore } from 'store/authStore';
 import { connectSocket, disconnectSocket, getSocket } from 'services/socket';
 import { useNotificationStore } from 'store/notificationStore';
 import { useStoreStore } from 'store/storeStore';
+import { clearOngoingNextOrderActivity } from 'services/ongoingOrderActivityService';
 import { useSyncPushToken } from 'hooks/useSyncPushToken';
 import AnimatedSplash from 'components/AnimatedSplash';
 import Toast from 'react-native-toast-message';
@@ -51,11 +52,25 @@ export default function RootLayout() {
       fetchUnreadCount();
     } else {
       disconnectSocket();
+      clearOngoingNextOrderActivity();
     }
     return () => {
       disconnectSocket();
     };
   }, [token]);
+
+  useEffect(() => {
+    const responseSub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response?.notification?.request?.content?.data as Record<string, any> | undefined;
+      const orderId = String(data?.orderId || '').trim();
+      if (!orderId) return;
+      router.push(`/order/${orderId}` as any);
+    });
+
+    return () => {
+      responseSub.remove();
+    };
+  }, []);
 
   useEffect(() => {
     if (!token) return;

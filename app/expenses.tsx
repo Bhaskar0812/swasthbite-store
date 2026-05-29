@@ -8,6 +8,9 @@ import {
   Modal,
   RefreshControl,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -203,44 +206,48 @@ export default function ExpensesScreen() {
       />
 
       {/* Add/Edit Modal */}
-      <Modal visible={modalVisible} animationType="slide" transparent>
-        <View className="flex-1 bg-black/50 justify-end">
-          <View className="bg-white rounded-t-3xl p-5">
-            <View className="flex-row items-center justify-between mb-4">
-              <Text className="text-lg font-bold text-textPrimary">{editingId ? 'Edit' : 'Add'} Expense</Text>
-              <TouchableOpacity onPress={() => setModalVisible(false)}>
-                <Ionicons name="close" size={24} color={Colors.textTertiary} />
-              </TouchableOpacity>
-            </View>
+      <Modal visible={modalVisible} animationType="slide" transparent presentationStyle="overFullScreen" onRequestClose={() => setModalVisible(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }} keyboardVerticalOffset={80}>
+          <View className="flex-1 bg-black/50 justify-end">
+            <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
+              <View className="bg-white rounded-t-3xl p-5">
+                <View className="flex-row items-center justify-between mb-4">
+                  <Text className="text-lg font-bold text-textPrimary">{editingId ? 'Edit' : 'Add'} Expense</Text>
+                  <TouchableOpacity onPress={() => setModalVisible(false)}>
+                    <Ionicons name="close" size={24} color={Colors.textTertiary} />
+                  </TouchableOpacity>
+                </View>
 
-            <Text className="text-xs font-medium text-textSecondary mb-1">Title</Text>
-            <TextInput className="bg-background border border-border rounded-xl px-4 py-3 text-sm mb-3" value={form.title} onChangeText={(t) => setForm({ ...form, title: t })} placeholder="Expense title" />
+                <Text className="text-xs font-medium text-textSecondary mb-1">Title</Text>
+                <TextInput className="bg-background border border-border rounded-xl px-4 py-3 text-sm mb-3" value={form.title} onChangeText={(t) => setForm({ ...form, title: t })} placeholder="Expense title" />
 
-            <Text className="text-xs font-medium text-textSecondary mb-1">Amount</Text>
-            <TextInput className="bg-background border border-border rounded-xl px-4 py-3 text-sm mb-3" value={form.amount} onChangeText={(t) => setForm({ ...form, amount: t })} placeholder="0" keyboardType="numeric" />
+                <Text className="text-xs font-medium text-textSecondary mb-1">Amount</Text>
+                <TextInput className="bg-background border border-border rounded-xl px-4 py-3 text-sm mb-3" value={form.amount} onChangeText={(t) => setForm({ ...form, amount: t })} placeholder="0" keyboardType="numeric" />
 
-            <Text className="text-xs font-medium text-textSecondary mb-1">Category</Text>
-            <View className="flex-row flex-wrap mb-3">
-              {categoryOptions.map((cat) => (
-                <TouchableOpacity
-                  key={cat.key}
-                  onPress={() => setForm({ ...form, category: cat.key })}
-                  className="px-3 py-1.5 rounded-full mr-2 mb-2 border"
-                  style={{ borderColor: form.category === cat.key ? Colors.primary : Colors.border, backgroundColor: form.category === cat.key ? Colors.primary + '10' : '#fff' }}
-                >
-                  <Text className="text-xs" style={{ color: form.category === cat.key ? Colors.primary : Colors.textSecondary }}>{cat.label}</Text>
+                <Text className="text-xs font-medium text-textSecondary mb-1">Category</Text>
+                <View className="flex-row flex-wrap mb-3">
+                  {categoryOptions.map((cat) => (
+                    <TouchableOpacity
+                      key={cat.key}
+                      onPress={() => setForm({ ...form, category: cat.key })}
+                      className="px-3 py-1.5 rounded-full mr-2 mb-2 border"
+                      style={{ borderColor: form.category === cat.key ? Colors.primary : Colors.border, backgroundColor: form.category === cat.key ? Colors.primary + '10' : '#fff' }}
+                    >
+                      <Text className="text-xs" style={{ color: form.category === cat.key ? Colors.primary : Colors.textSecondary }}>{cat.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <Text className="text-xs font-medium text-textSecondary mb-1">Notes (optional)</Text>
+                <TextInput className="bg-background border border-border rounded-xl px-4 py-3 text-sm mb-4" value={form.notes} onChangeText={(t) => setForm({ ...form, notes: t })} placeholder="Additional notes" multiline />
+
+                <TouchableOpacity onPress={handleSave} disabled={saving} className="bg-primary rounded-xl py-4 items-center">
+                  {saving ? <ActivityIndicator color="#fff" /> : <Text className="text-white text-base font-bold">{editingId ? 'Update' : 'Add'} Expense</Text>}
                 </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text className="text-xs font-medium text-textSecondary mb-1">Notes (optional)</Text>
-            <TextInput className="bg-background border border-border rounded-xl px-4 py-3 text-sm mb-4" value={form.notes} onChangeText={(t) => setForm({ ...form, notes: t })} placeholder="Additional notes" multiline />
-
-            <TouchableOpacity onPress={handleSave} disabled={saving} className="bg-primary rounded-xl py-4 items-center">
-              {saving ? <ActivityIndicator color="#fff" /> : <Text className="text-white text-base font-bold">{editingId ? 'Update' : 'Add'} Expense</Text>}
-            </TouchableOpacity>
+              </View>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
