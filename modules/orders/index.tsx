@@ -1,6 +1,16 @@
 
-import { useEffect, useState, useCallback } from 'react';
-import { View, Text, FlatList, RefreshControl, TouchableOpacity, Image } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  View,
+  Text,
+  RefreshControl,
+  TouchableOpacity,
+  Image,
+  Animated,
+  Dimensions,
+  PanResponder,
+  ScrollView,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
@@ -13,8 +23,14 @@ import { pickImageUrl } from 'utils/image';
 
 export default function OrdersScreen() {
   const { dashboard, packages, loading, fetchDashboard, fetchPackages } = useStoreStore();
-  const [tab, setTab] = useState<'today' | 'tomorrow' | 'past'>('today');
+  const [swipeLane, setSwipeLane] = useState<'upcoming' | 'past'>('upcoming');
+  const [upcomingCardIndex, setUpcomingCardIndex] = useState(0);
+  const [pastCardIndex, setPastCardIndex] = useState(0);
+  const [isSwipeAnimating, setIsSwipeAnimating] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const swipe = useRef(new Animated.ValueXY()).current;
+  const screenWidth = Dimensions.get('window').width;
+  const swipeThreshold = 110;
 
   useEffect(() => {
     fetchDashboard();
@@ -122,9 +138,17 @@ export default function OrdersScreen() {
     }),
   );
 
-  const orders = sortOrders(
-    tab === 'today' ? todayOrders : tab === 'tomorrow' ? tomorrowOrders : pastOrders,
+  const upcomingOrders = useMemo(
+    () => sortOrders([...todayOrders, ...tomorrowOrders]),
+    [todayOrders, tomorrowOrders],
   );
+
+  const laneOrders = swipeLane === 'upcoming' ? upcomingOrders : pastOrders;
+  const activeIndex = swipeLane === 'upcoming' ? upcomingCardIndex : pastCardIndex;
+  const currentOrder = laneOrders.length ? laneOrders[activeIndex % laneOrders.length] : null;
+  const nextOrder = laneOrders.length
+    ? laneOrders[(activeIndex + 1) % laneOrders.length]
+    : null;
 
   const preparingCount = todayAllOrders.filter((item) => isPreparingStatus(item.status)).length;
   const outForDeliveryCount = todayAllOrders.filter((item) => isOutForDeliveryStatus(item.status)).length;
@@ -185,27 +209,64 @@ export default function OrdersScreen() {
     return `${seconds}s left`;
   };
 
-  const renderOrder = ({ item }: { item: DashboardOrder }) => (
+  const renderOrderCard = (item: DashboardOrder | null, isBehind = false) => {
+    if (!item) {
+      return (
+        <View
+          className="rounded-3xl p-6 mx-4 items-center justify-center"
+          style={{
+            minHeight: 460,
+            backgroundColor: '#fff',
+            borderWidth: 1,
+            borderColor: '#E5E7EB',
+          }}
+        >
+          <Ionicons name="cube-outline" size={44} color={Colors.textTertiary} />
+          <Text className="text-textSecondary text-base font-semibold mt-3">
+            {swipeLane === 'upcoming' ? 'No upcoming orders' : 'No past orders'}
+          </Text>
+        </View>
+      );
+    }
+
+    return (
     <TouchableOpacity
       activeOpacity={0.82}
       onPress={() => router.push(`/order/${item.order_id || item._id}` as any)}
-      className="rounded-3xl p-4 mb-4 mx-4 shadow-lg"
+      className="rounded-3xl mx-4 shadow-lg overflow-hidden"
       style={{
+        minHeight: 500,
         elevation: 6,
         shadowColor: item.delivery_mode === 'instant' ? '#2563EB' : '#000000',
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: item.delivery_mode === 'instant' ? 0.15 : 0.08,
+        shadowOpacity: isBehind ? 0.03 : item.delivery_mode === 'instant' ? 0.15 : 0.08,
         shadowRadius: 12,
         borderWidth: 1,
         borderColor: item.delivery_mode === 'instant' ? '#2563EB' : '#EEF2FF',
-        backgroundColor: item.delivery_mode === 'instant' ? '#EFF6FF' : '#fff',
+        backgroundColor: '#fff',
+        opacity: isBehind ? 0.86 : 1,
+        transform: [{ scale: isBehind ? 0.97 : 1 }],
       }}
     >
+      <View className="w-full h-56 bg-slate-100">
+        {getOrderImage(item) ? (
+          <Image
+            source={{ uri: getOrderImage(item) }}
+            style={{ width: '100%', height: '100%' }}
+            resizeMode="cover"
+          />
+        ) : (
+          <View className="flex-1 items-center justify-center">
+            <Ionicons name="restaurant-outline" size={36} color={Colors.textTertiary} />
+          </View>
+        )}
+      </View>
+      <View className="p-4">
       {item.delivery_mode === 'instant' ? (
         <View
           style={{
             position: 'absolute',
-            top: 12,
+            top: 14,
             right: 16,
             backgroundColor: '#2563EB',
             paddingHorizontal: 10,
@@ -305,8 +366,77 @@ export default function OrdersScreen() {
           </Text>
         </View>
       ) : null}
+      </View>
     </TouchableOpacity>
-  );
+    );
+  };
+
+  const resetSwipePosition = () => {
+    Animated.spring(swipe, {
+      toValue: { x: 0, y: 0 },
+      useNativeDriver: false,
+      friction: 7,
+    }).start();
+  };
+
+  const completeSwipe = (direction: 'left' | 'right') => {
+    const lane = direction === 'left' ? 'upcoming' : 'past';
+    const list = lane === 'upcoming' ? upcomingOrders : pastOrders;
+
+    setSwipeLane(lane);
+    if (list.length > 0) {
+      if (lane === 'upcoming') {
+        setUpcomingCardIndex((prev) => (prev + 1) % list.length);
+      } else {
+        setPastCardIndex((prev) => (prev + 1) % list.length);
+      }
+    }
+
+    swipe.setValue({ x: 0, y: 0 });
+    setIsSwipeAnimating(false);
+  };
+
+  const forceSwipe = (direction: 'left' | 'right') => {
+    if (isSwipeAnimating) return;
+    setIsSwipeAnimating(true);
+
+    const toX = direction === 'left' ? -screenWidth * 1.15 : screenWidth * 1.15;
+    Animated.timing(swipe, {
+      toValue: { x: toX, y: 0 },
+      duration: 210,
+      useNativeDriver: false,
+    }).start(() => completeSwipe(direction));
+  };
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gesture) =>
+        Math.abs(gesture.dx) > 8 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
+      onPanResponderMove: Animated.event([null, { dx: swipe.x, dy: swipe.y }], {
+        useNativeDriver: false,
+      }),
+      onPanResponderRelease: (_, gesture) => {
+        if (gesture.dx > swipeThreshold) {
+          forceSwipe('right');
+        } else if (gesture.dx < -swipeThreshold) {
+          forceSwipe('left');
+        } else {
+          resetSwipePosition();
+        }
+      },
+      onPanResponderTerminate: resetSwipePosition,
+    }),
+  ).current;
+
+  const cardRotation = swipe.x.interpolate({
+    inputRange: [-screenWidth, 0, screenWidth],
+    outputRange: ['-10deg', '0deg', '10deg'],
+    extrapolate: 'clamp',
+  });
+
+  const swipeCardStyle = {
+    transform: [{ translateX: swipe.x }, { translateY: swipe.y }, { rotate: cardRotation }],
+  };
 
   return (
     <SafeAreaView className="flex-1 bg-blue-600" edges={['top']}>
@@ -331,44 +461,69 @@ export default function OrdersScreen() {
           </View>
         </View>
 
-        {/* Tab Switcher */}
-        <View className="flex-row bg-blue-100 rounded-xl p-1 mt-2">
+        <View className="mt-2 rounded-xl px-3 py-2" style={{ backgroundColor: 'rgba(255,255,255,0.16)' }}>
+          <Text className="text-blue-100 text-xs">Swipe Deck</Text>
+          <Text className="text-white text-sm font-semibold">Left: Upcoming  |  Right: Past</Text>
+        </View>
+      </View>
+
+      <ScrollView
+        style={{ backgroundColor: Colors.background }}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchDashboard} colors={[Colors.primary]} />}
+        contentContainerStyle={{ paddingBottom: 32 }}
+        showsVerticalScrollIndicator={false}
+      >
+        <View className="flex-row bg-blue-100 rounded-xl p-1 mt-2 mx-4 mb-4">
           {([
-            { key: 'today' as const, label: `Today (${todayOrders.length})` },
-            { key: 'tomorrow' as const, label: `Tomorrow (${tomorrowOrders.length})` },
+            { key: 'upcoming' as const, label: `Upcoming (${upcomingOrders.length})` },
             { key: 'past' as const, label: `Past (${pastOrders.length})` },
           ]).map((t) => (
             <TouchableOpacity
               key={t.key}
-              onPress={() => setTab(t.key)}
+              onPress={() => setSwipeLane(t.key)}
               className="flex-1 py-2.5 rounded-lg items-center"
-              style={tab === t.key ? { backgroundColor: '#2563EB' } : {}}
+              style={swipeLane === t.key ? { backgroundColor: '#2563EB' } : {}}
             >
               <Text
                 className="text-sm font-semibold"
-                style={{ color: tab === t.key ? '#fff' : '#2563EB' }}
+                style={{ color: swipeLane === t.key ? '#fff' : '#2563EB' }}
               >
                 {t.label}
               </Text>
             </TouchableOpacity>
           ))}
         </View>
-      </View>
 
-      <FlatList
-        data={orders}
-        keyExtractor={(item) => item._id}
-        renderItem={renderOrder}
-        style={{ backgroundColor: Colors.background }}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchDashboard} colors={[Colors.primary]} />}
-        ListEmptyComponent={
-          <View className="items-center py-20">
-            <Ionicons name="receipt-outline" size={48} color={Colors.textTertiary} />
-            <Text className="text-textTertiary mt-3">No orders for {tab}</Text>
+        <Text className="text-xs text-textTertiary mx-6 mb-2">
+          Swipe left for upcoming, swipe right for past.
+        </Text>
+
+        <View style={{ minHeight: 520, justifyContent: 'center', marginBottom: 12 }}>
+          <View style={{ position: 'absolute', width: '100%', paddingHorizontal: 0 }}>
+            {renderOrderCard(nextOrder, true)}
           </View>
-        }
-        contentContainerStyle={{ paddingBottom: 32 }}
-      />
+          <Animated.View {...panResponder.panHandlers} style={swipeCardStyle}>
+            {renderOrderCard(currentOrder)}
+          </Animated.View>
+        </View>
+
+        <View className="flex-row items-center justify-center mb-2">
+          <TouchableOpacity
+            onPress={() => forceSwipe('right')}
+            className="w-12 h-12 rounded-full items-center justify-center mr-4"
+            style={{ backgroundColor: '#FFE4E6' }}
+          >
+            <Ionicons name="arrow-back" size={22} color="#E11D48" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => forceSwipe('left')}
+            className="w-12 h-12 rounded-full items-center justify-center"
+            style={{ backgroundColor: '#DBEAFE' }}
+          >
+            <Ionicons name="arrow-forward" size={22} color="#2563EB" />
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
