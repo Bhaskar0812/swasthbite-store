@@ -231,6 +231,20 @@ export default function StoreOrderDetailScreen() {
     }
   };
 
+  const markCollectedFromDeliveryPartner = async () => {
+    if (!id) return;
+    try {
+      setUpdatingKey('collect_partner_cash');
+      const res = await storeService.collectFromDeliveryPartner(String(id));
+      setOrder(res.data || order);
+      Alert.alert('Success', 'Marked as collected from delivery partner.');
+    } catch (error: any) {
+      Alert.alert('Error', error?.response?.data?.message || 'Failed to mark partner collection');
+    } finally {
+      setUpdatingKey(null);
+    }
+  };
+
   if (loading) {
     return (
       <SafeAreaView className="flex-1 bg-background items-center justify-center">
@@ -297,6 +311,15 @@ export default function StoreOrderDetailScreen() {
     : normalizeText(order.meal_name) || 'Today’s meal';
   const orderSlotLabel = nextEditableDelivery?.slot || order.slot || '';
   const dueAmount = Number(order.due_amount || 0);
+  const manualCollection = order?.manual_payment_collection || {};
+  const partnerCashDue = Number(manualCollection?.partner_cash_due_to_store || 0);
+  const canMarkCollectedFromPartner =
+    String(manualCollection?.payment_marked_by || '') === 'delivery_partner' &&
+    !manualCollection?.partner_cash_collected_by_store &&
+    partnerCashDue > 0;
+  const partnerDueAt = manualCollection?.partner_cash_due_at
+    ? new Date(manualCollection.partner_cash_due_at)
+    : null;
 
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
@@ -363,6 +386,25 @@ export default function StoreOrderDetailScreen() {
               ) : null}
             </View>
           </View>
+          {canMarkCollectedFromPartner ? (
+            <TouchableOpacity
+              onPress={markCollectedFromDeliveryPartner}
+              disabled={updatingKey === 'collect_partner_cash'}
+              className="px-4 py-3 rounded-2xl"
+              style={{ backgroundColor: '#0EA5A4' }}
+            >
+              <Text className="text-white text-base font-semibold text-center">
+                {updatingKey === 'collect_partner_cash'
+                  ? 'Updating...'
+                  : `Collected from Delivery Partner (₹${partnerCashDue})`}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+          {canMarkCollectedFromPartner && partnerDueAt ? (
+            <Text className="text-sm text-textSecondary mt-2">
+              Mark before {partnerDueAt.toLocaleString('en-IN')} to avoid auto recovery with penalty.
+            </Text>
+          ) : null}
           {/* Removed full order cancellation. Per-day cancellation is below. */}
         </View>
 

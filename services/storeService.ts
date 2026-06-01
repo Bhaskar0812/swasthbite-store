@@ -274,6 +274,10 @@ export const storeService = {
     const res = await api.post(`/store/orders/${id}/payment-state`, payload);
     return res.data;
   },
+  collectFromDeliveryPartner: async (id: string) => {
+    const res = await api.post(`/store/orders/${id}/collect-from-delivery-partner`);
+    return res.data;
+  },
   cancelOrder: async (
     id: string,
     refund_option: "wallet" | "original" | "no_refund",
