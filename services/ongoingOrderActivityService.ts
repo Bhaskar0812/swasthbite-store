@@ -1,6 +1,7 @@
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 import * as LiveActivity from "expo-live-activity";
+import Constants from "expo-constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { DashboardData, DashboardOrder } from "types";
 
@@ -34,7 +35,27 @@ const getOrderTitle = (order: DashboardOrder) =>
   "Order";
 
 const getOrderId = (order: DashboardOrder) =>
-  String(order.order_id || order._id || "").trim();
+  String(
+    (order as any)?.subscription_id ||
+      order._id ||
+      order.order_id ||
+      (order as any)?.id ||
+      "",
+  ).trim();
+
+const canUseIosLiveActivity = () => {
+  if (Platform.OS !== "ios") return false;
+  if ((Constants as any)?.appOwnership === "expo") return false;
+
+  const start = (LiveActivity as any)?.startActivity;
+  const stop = (LiveActivity as any)?.stopActivity;
+  const update = (LiveActivity as any)?.updateActivity;
+  return (
+    typeof start === "function" &&
+    typeof stop === "function" &&
+    typeof update === "function"
+  );
+};
 
 const getSlotRank = (slot?: string) =>
   SLOT_ORDER[String(slot || "").toLowerCase()] || 99;
@@ -342,6 +363,7 @@ export async function syncOngoingNextOrderActivity(
     const order = pickNextOrder(dashboard);
 
     if (Platform.OS === "ios") {
+      if (!canUseIosLiveActivity()) return;
       await syncIosLiveActivity(order, dashboard);
       return;
     }
@@ -382,6 +404,14 @@ export async function syncOngoingNextOrderActivity(
 
 export async function clearOngoingNextOrderActivity() {
   if (Platform.OS === "ios") {
+    if (!canUseIosLiveActivity()) {
+      await AsyncStorage.multiRemove([
+        IOS_ACTIVITY_ID_KEY,
+        IOS_ACTIVITY_ORDER_KEY,
+      ]);
+      return;
+    }
+
     const activityId = await AsyncStorage.getItem(IOS_ACTIVITY_ID_KEY);
     if (activityId) {
       await LiveActivity.stopActivity(activityId, {

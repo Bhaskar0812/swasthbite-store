@@ -7,8 +7,42 @@ export const storeService = {
     return res.data;
   },
   getOrderDetail: async (id: string) => {
-    const res = await api.get(`/store/orders/${id}`);
-    return res.data;
+    try {
+      const res = await api.get(`/store/orders/${id}`);
+      return res.data;
+    } catch (error: any) {
+      const status = error?.response?.status;
+      if (status !== 404) throw error;
+
+      const dashboardRes = await api.get("/store/dashboard");
+      const dashboardData = dashboardRes?.data?.data || dashboardRes?.data || {};
+      const candidates = [
+        ...(dashboardData?.today_orders || []),
+        ...(dashboardData?.tomorrow_orders || []),
+        ...(dashboardData?.delivered_orders || []),
+      ];
+
+      const normalizedId = String(id || "").trim();
+      const matched = candidates.find((order: any) => {
+        const ids = [
+          order?._id,
+          order?.subscription_id,
+          order?.order_id,
+          order?.id,
+        ]
+          .map((value) => String(value || "").trim())
+          .filter(Boolean);
+        return ids.includes(normalizedId);
+      });
+
+      const fallbackId = String(
+        matched?.order_id || matched?.subscription_id || matched?.id || matched?._id || "",
+      ).trim();
+      if (!fallbackId) throw error;
+
+      const retryRes = await api.get(`/store/orders/${fallbackId}`);
+      return retryRes.data;
+    }
   },
   getStoreHours: async () => {
     const res = await api.get("/store/hours");

@@ -118,20 +118,60 @@ const buildAddress = (order: any) => {
 };
 
 export default function StoreOrderDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, alts, openAt } = useLocalSearchParams<{ id: string; alts?: string; openAt?: string }>();
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [updatingKey, setUpdatingKey] = useState<string | null>(null);
+  const [resolvedOrderId, setResolvedOrderId] = useState('');
+
+  const apiOrderId = useMemo(
+    () => String(order?._id || resolvedOrderId || id || '').trim(),
+    [order?._id, resolvedOrderId, id],
+  );
 
   const loadOrder = async () => {
     if (!id) return;
+
+    const candidateIds = Array.from(
+      new Set(
+        [
+          String(id || '').trim(),
+          ...String(alts || '')
+            .split(',')
+            .map((entry) => entry.trim())
+            .filter(Boolean),
+        ].filter(Boolean),
+      ),
+    );
+
     try {
       setLoading(true);
-      const res = await storeService.getOrderDetail(String(id));
-      setOrder(res.data);
+      let resolvedOrder: any = null;
+      let lastError: any = null;
+
+      for (const candidateId of candidateIds) {
+        try {
+          const res = await storeService.getOrderDetail(candidateId);
+          const data = res?.data ?? res ?? null;
+          if (data) {
+            resolvedOrder = data;
+            setResolvedOrderId(String((data as any)?._id || candidateId || '').trim());
+            break;
+          }
+        } catch (error: any) {
+          lastError = error;
+        }
+      }
+
+      if (!resolvedOrder && lastError) {
+        throw lastError;
+      }
+
+      setOrder(resolvedOrder);
     } catch (error: any) {
       Alert.alert('Error', error?.response?.data?.message || 'Failed to load order detail');
-      router.back();
+      setOrder(null);
+      setResolvedOrderId('');
     } finally {
       setLoading(false);
     }
@@ -139,7 +179,7 @@ export default function StoreOrderDetailScreen() {
 
   useEffect(() => {
     loadOrder();
-  }, [id]);
+  }, [id, alts, openAt]);
 
   const statusMeta = useMemo(() => STATUS_META[String(order?.status || '').toLowerCase()] || STATUS_META.scheduled, [order?.status]);
 
@@ -177,11 +217,11 @@ export default function StoreOrderDetailScreen() {
     : [];
 
   const updateDeliveryStatus = async (deliveryIndex: number, status: string) => {
-    if (!id) return;
+    if (!apiOrderId) return;
     const key = `${deliveryIndex}-${status}`;
     try {
       setUpdatingKey(key);
-      const res = await storeService.updateOrderDeliveryStatus(String(id), {
+      const res = await storeService.updateOrderDeliveryStatus(apiOrderId, {
         delivery_index: deliveryIndex,
         status,
       });
@@ -195,11 +235,11 @@ export default function StoreOrderDetailScreen() {
   };
 
   const requestPayment = async () => {
-    if (!id) return;
+    if (!apiOrderId) return;
     try {
       setUpdatingKey('payment');
       const dueAmount = Number(order?.due_amount || 0);
-      const res = await storeService.requestOrderPayment(String(id), {
+      const res = await storeService.requestOrderPayment(apiOrderId, {
         due_amount: dueAmount > 0 ? dueAmount : undefined,
       });
       setOrder(res.data || order);
@@ -212,12 +252,12 @@ export default function StoreOrderDetailScreen() {
   };
 
   const markPaid = async () => {
-    if (!id) return;
+    if (!apiOrderId) return;
     try {
       setUpdatingKey('mark_paid');
       const paidAmount = Number(order?.paid_amount || 0);
       const dueAmount = Number(order?.due_amount || 0);
-      const res = await storeService.updateOrderPaymentState(String(id), {
+      const res = await storeService.updateOrderPaymentState(apiOrderId, {
         payment_status: 'paid',
         paid_amount: paidAmount + dueAmount,
         due_amount: 0,
@@ -232,10 +272,10 @@ export default function StoreOrderDetailScreen() {
   };
 
   const markCollectedFromDeliveryPartner = async () => {
-    if (!id) return;
+    if (!apiOrderId) return;
     try {
       setUpdatingKey('collect_partner_cash');
-      const res = await storeService.collectFromDeliveryPartner(String(id));
+      const res = await storeService.collectFromDeliveryPartner(apiOrderId);
       setOrder(res.data || order);
       Alert.alert('Success', 'Marked as collected from delivery partner.');
     } catch (error: any) {

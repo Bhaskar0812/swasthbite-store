@@ -33,6 +33,7 @@ export type DashboardData = {
   recent_settlements: Settlement[];
   today_orders: DashboardOrder[];
   tomorrow_orders: DashboardOrder[];
+  delivered_orders?: DashboardOrder[];
   weekly_revenue: number;
   monthly_revenue: number;
   total_revenue: number;

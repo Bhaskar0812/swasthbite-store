@@ -65,15 +65,27 @@ export default function RootLayout() {
   useEffect(() => {
     const responseSub = Notifications.addNotificationResponseReceivedListener((response) => {
       const data = response?.notification?.request?.content?.data as Record<string, any> | undefined;
-      const orderId = String(
-        data?.orderId ||
-        data?.order_id ||
-        data?.subscription_id ||
-        data?.subscriptionId ||
-        '',
-      ).trim();
+      const candidates = [
+        data?._id,
+        data?.subscription_id,
+        data?.subscriptionId,
+        data?.orderId,
+        data?.order_id,
+      ]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean);
+      const uniqueCandidates = Array.from(new Set(candidates));
+      const orderId = uniqueCandidates[0] || '';
       if (!orderId) return;
-      router.push(`/order/${orderId}` as any);
+
+      router.push({
+        pathname: '/order/[id]' as any,
+        params: {
+          id: orderId,
+          alts: uniqueCandidates.join(','),
+          openAt: String(Date.now()),
+        },
+      });
     });
 
     return () => {

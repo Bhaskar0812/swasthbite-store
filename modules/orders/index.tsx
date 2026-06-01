@@ -1,4 +1,3 @@
-
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
@@ -6,9 +5,6 @@ import {
   RefreshControl,
   TouchableOpacity,
   Image,
-  Animated,
-  Dimensions,
-  PanResponder,
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -20,17 +16,25 @@ import { useStoreStore } from 'store/storeStore';
 import type { DashboardOrder } from 'types';
 import { pickImageUrl } from 'utils/image';
 
+type OrdersTab = 'today' | 'tomorrow' | 'delivered';
 
 export default function OrdersScreen() {
   const { dashboard, packages, loading, fetchDashboard, fetchPackages } = useStoreStore();
-  const [swipeLane, setSwipeLane] = useState<'upcoming' | 'past'>('upcoming');
-  const [upcomingCardIndex, setUpcomingCardIndex] = useState(0);
-  const [pastCardIndex, setPastCardIndex] = useState(0);
-  const [isSwipeAnimating, setIsSwipeAnimating] = useState(false);
+
+  const [activeTab, setActiveTab] = useState<OrdersTab>('today');
+  const [activeIndexes, setActiveIndexes] = useState<Record<OrdersTab, number>>({
+    today: 0,
+    tomorrow: 0,
+    delivered: 0,
+  });
   const [now, setNow] = useState(Date.now());
-  const swipe = useRef(new Animated.ValueXY()).current;
-  const screenWidth = Dimensions.get('window').width;
-  const swipeThreshold = 110;
+
+  const selectedByTabRef = useRef<Record<OrdersTab, string>>({
+    today: '',
+    tomorrow: '',
+    delivered: '',
+  });
+  const hasInitializedDeliveredRef = useRef(false);
 
   useEffect(() => {
     fetchDashboard();
@@ -49,6 +53,7 @@ export default function OrdersScreen() {
 
   const getOrderTitle = (item: DashboardOrder) =>
     normalizeText(item.meal_name) || normalizeText(item.package_name) || 'Order';
+
   const getOrderImage = (item: DashboardOrder) => {
     const direct = pickImageUrl(item, [
       'package_image',
@@ -82,10 +87,12 @@ export default function OrdersScreen() {
 
     return pickImageUrl(pkg, ['image_url', 'image', 'thumbnail', 'photo', 'media.url', 'images']);
   };
+
   const isInstantOrder = (item: DashboardOrder) => item.delivery_mode === 'instant';
+
   const isDeliveredOrder = (item: DashboardOrder) => {
     const status = String(item.status || '').toLowerCase();
-    return ['delivered', 'completed', 'cancelled', 'failed'].includes(status);
+    return ['delivered', 'completed'].includes(status);
   };
 
   const isTerminalOrder = (item: DashboardOrder) => {
@@ -110,52 +117,196 @@ export default function OrdersScreen() {
 
   const sortOrders = (list: DashboardOrder[]) => {
     return [...list].sort((a, b) => {
-      const aRank = isInstantOrder(a) ? 0 : isDeliveredOrder(a) ? 2 : 1;
-      const bRank = isInstantOrder(b) ? 0 : isDeliveredOrder(b) ? 2 : 1;
-      if (aRank !== bRank) return aRank - bRank;
+      const aDate = new Date(a.date || a.createdAt || 0).getTime();
+      const bDate = new Date(b.date || b.createdAt || 0).getTime();
+      if (aDate !== bDate) return bDate - aDate;
 
-      if (aRank === 0) {
-        const aDeadline = a.instant_deadline_at ? new Date(a.instant_deadline_at).getTime() : 0;
-        const bDeadline = b.instant_deadline_at ? new Date(b.instant_deadline_at).getTime() : 0;
-        return aDeadline - bDeadline;
-      }
-
-      const aCreated = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-      const bCreated = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      return bCreated - aCreated;
+      const slotOrder: Record<string, number> = {
+        morning: 1,
+        lunch: 2,
+        evening: 3,
+        dinner: 4,
+      };
+      const aSlot = slotOrder[String(a.slot || '').toLowerCase()] || 99;
+      const bSlot = slotOrder[String(b.slot || '').toLowerCase()] || 99;
+      return aSlot - bSlot;
     });
   };
+
+  const formatOrderDate = (item: DashboardOrder) => {
+    const raw = item.date || item.createdAt || '';
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return 'Date unavailable';
+    return parsed.toLocaleDateString('en-IN', {
+      weekday: 'short',
+      day: '2-digit',
+      month: 'short',
+    });
+  };
+
+  const formatSlotLabel = (slot?: string) => {
+    const normalized = String(slot || '').trim().toLowerCase();
+    if (!normalized) return 'Scheduled';
+    return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+  };
+
+  const todayDateLabel = useMemo(() => {
+    const d = new Date(now);
+    return d.toISOString().split('T')[0];
+  }, [now]);
 
   const todayAllOrders = dashboard?.today_orders || [];
   const tomorrowAllOrders = dashboard?.tomorrow_orders || [];
 
-  const todayOrders = todayAllOrders.filter((item) => !isTerminalOrder(item));
-  const tomorrowOrders = tomorrowAllOrders.filter((item) => !isTerminalOrder(item));
-  const pastOrders = sortOrders(
-    [...todayAllOrders, ...tomorrowAllOrders].filter((item) => {
-      const status = String(item.status || '').toLowerCase();
-      return ['delivered', 'completed', 'cancelled', 'failed', 'skipped'].includes(status);
-    }),
+  const todaySliderOrders = useMemo(
+    () => sortOrders(todayAllOrders.filter((item) => !isTerminalOrder(item))),
+    [todayAllOrders],
   );
 
-  const upcomingOrders = useMemo(
-    () => sortOrders([...todayOrders, ...tomorrowOrders]),
-    [todayOrders, tomorrowOrders],
+  const tomorrowSliderOrders = useMemo(
+    () => sortOrders(tomorrowAllOrders.filter((item) => !isTerminalOrder(item))),
+    [tomorrowAllOrders],
   );
 
-  const laneOrders = swipeLane === 'upcoming' ? upcomingOrders : pastOrders;
-  const activeIndex = swipeLane === 'upcoming' ? upcomingCardIndex : pastCardIndex;
-  const currentOrder = laneOrders.length ? laneOrders[activeIndex % laneOrders.length] : null;
-  const nextOrder = laneOrders.length
-    ? laneOrders[(activeIndex + 1) % laneOrders.length]
+  const deliveredSliderOrders = useMemo(() => {
+    const backendDelivered = dashboard?.delivered_orders || [];
+    const fallbackDelivered = [...todayAllOrders, ...tomorrowAllOrders].filter((item) => isDeliveredOrder(item));
+    const source = backendDelivered.length ? backendDelivered : fallbackDelivered;
+    return sortOrders(source.filter((item) => isDeliveredOrder(item)));
+  }, [dashboard?.delivered_orders, todayAllOrders, tomorrowAllOrders]);
+
+  const decks: Record<OrdersTab, DashboardOrder[]> = {
+    today: todaySliderOrders,
+    tomorrow: tomorrowSliderOrders,
+    delivered: deliveredSliderOrders,
+  };
+
+  const syncTabIndex = (tab: OrdersTab, deck: DashboardOrder[]) => {
+    if (!deck.length) {
+      setActiveIndexes((prev) => ({ ...prev, [tab]: 0 }));
+      selectedByTabRef.current[tab] = '';
+      if (tab === 'delivered') hasInitializedDeliveredRef.current = false;
+      return;
+    }
+
+    const selectedId = selectedByTabRef.current[tab];
+    if (selectedId) {
+      const stickyIdx = deck.findIndex((item) => {
+        const id = String((item as any)?.order_id || (item as any)?.subscription_id || item?._id || '').trim();
+        return id === selectedId;
+      });
+      if (stickyIdx >= 0) {
+        setActiveIndexes((prev) => ({ ...prev, [tab]: stickyIdx }));
+        return;
+      }
+    }
+
+    if (tab === 'delivered' && !hasInitializedDeliveredRef.current) {
+      const todayIdx = deck.findIndex((item) => {
+        const d = new Date(item.date || item.createdAt || '').toISOString().split('T')[0];
+        return d === todayDateLabel;
+      });
+      setActiveIndexes((prev) => ({ ...prev, delivered: todayIdx >= 0 ? todayIdx : 0 }));
+      hasInitializedDeliveredRef.current = true;
+      return;
+    }
+
+    setActiveIndexes((prev) => ({
+      ...prev,
+      [tab]: ((prev[tab] % deck.length) + deck.length) % deck.length,
+    }));
+  };
+
+  const todayDeckKey = todaySliderOrders
+    .map((item) => String((item as any)?.order_id || (item as any)?.subscription_id || item?._id || '').trim())
+    .join('|');
+  const tomorrowDeckKey = tomorrowSliderOrders
+    .map((item) => String((item as any)?.order_id || (item as any)?.subscription_id || item?._id || '').trim())
+    .join('|');
+  const deliveredDeckKey = deliveredSliderOrders
+    .map((item) => String((item as any)?.order_id || (item as any)?.subscription_id || item?._id || '').trim())
+    .join('|');
+
+  useEffect(() => {
+    syncTabIndex('today', todaySliderOrders);
+  }, [todayDeckKey]);
+
+  useEffect(() => {
+    syncTabIndex('tomorrow', tomorrowSliderOrders);
+  }, [tomorrowDeckKey]);
+
+  useEffect(() => {
+    syncTabIndex('delivered', deliveredSliderOrders);
+  }, [deliveredDeckKey, todayDateLabel]);
+
+  const activeDeck = decks[activeTab];
+  const activeDeckLength = activeDeck.length;
+  const rawIndex = activeIndexes[activeTab] || 0;
+  const normalizedActiveIndex = activeDeckLength
+    ? ((rawIndex % activeDeckLength) + activeDeckLength) % activeDeckLength
+    : 0;
+
+  const currentOrder = activeDeckLength
+    ? activeDeck[normalizedActiveIndex] || activeDeck[0] || null
     : null;
+
+  useEffect(() => {
+    if (!currentOrder) return;
+    selectedByTabRef.current[activeTab] = String(
+      (currentOrder as any)?.order_id ||
+      (currentOrder as any)?.subscription_id ||
+      (currentOrder as any)?._id ||
+      '',
+    ).trim();
+  }, [currentOrder, activeTab]);
 
   const preparingCount = todayAllOrders.filter((item) => isPreparingStatus(item.status)).length;
   const outForDeliveryCount = todayAllOrders.filter((item) => isOutForDeliveryStatus(item.status)).length;
   const deliveredTodayCount = todayAllOrders.filter((item) => isDeliveredStatus(item.status)).length;
 
+  const resolveOrderRouteId = (item: DashboardOrder) => {
+    const candidates = [
+      (item as any)?.order_id,
+      (item as any)?.subscription_id,
+      item?._id,
+      (item as any)?.id,
+    ]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean);
+
+    return candidates[0] || '';
+  };
+
+  const resolveOrderAltIds = (item: DashboardOrder) => {
+    const candidates = [
+      (item as any)?.order_id,
+      (item as any)?.subscription_id,
+      item?._id,
+      (item as any)?.id,
+    ]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean);
+
+    return Array.from(new Set(candidates));
+  };
+
+  const navigateToOrder = (item: DashboardOrder) => {
+    const routeId = resolveOrderRouteId(item);
+    const altIds = resolveOrderAltIds(item);
+    if (!routeId) return;
+
+    router.push({
+      pathname: '/order/[id]' as any,
+      params: {
+        id: routeId,
+        alts: altIds.join(','),
+        openAt: String(Date.now()),
+      },
+    });
+  };
+
   const getStatusColor = (status: string) => {
-    switch (status) {
+    switch (String(status || '').toLowerCase()) {
       case 'pending':
         return Colors.warning;
       case 'preparing':
@@ -209,239 +360,187 @@ export default function OrdersScreen() {
     return `${seconds}s left`;
   };
 
-  const renderOrderCard = (item: DashboardOrder | null, isBehind = false) => {
+  const goToPrev = () => {
+    if (!activeDeckLength) return;
+    setActiveIndexes((prev) => ({
+      ...prev,
+      [activeTab]: (prev[activeTab] - 1 + activeDeckLength) % activeDeckLength,
+    }));
+  };
+
+  const goToNext = () => {
+    if (!activeDeckLength) return;
+    setActiveIndexes((prev) => ({
+      ...prev,
+      [activeTab]: (prev[activeTab] + 1) % activeDeckLength,
+    }));
+  };
+
+  const renderOrderCard = (item: DashboardOrder | null) => {
     if (!item) {
       return (
         <View
           className="rounded-3xl p-6 mx-4 items-center justify-center"
           style={{
-            minHeight: 460,
+            minHeight: 430,
             backgroundColor: '#fff',
             borderWidth: 1,
             borderColor: '#E5E7EB',
           }}
         >
           <Ionicons name="cube-outline" size={44} color={Colors.textTertiary} />
-          <Text className="text-textSecondary text-base font-semibold mt-3">
-            {swipeLane === 'upcoming' ? 'No upcoming orders' : 'No past orders'}
-          </Text>
+          <Text className="text-textSecondary text-base font-semibold mt-3">No orders in this tab</Text>
         </View>
       );
     }
 
     return (
-    <TouchableOpacity
-      activeOpacity={0.82}
-      onPress={() => router.push(`/order/${item.order_id || item._id}` as any)}
-      className="rounded-3xl mx-4 shadow-lg overflow-hidden"
-      style={{
-        minHeight: 500,
-        elevation: 6,
-        shadowColor: item.delivery_mode === 'instant' ? '#2563EB' : '#000000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: isBehind ? 0.03 : item.delivery_mode === 'instant' ? 0.15 : 0.08,
-        shadowRadius: 12,
-        borderWidth: 1,
-        borderColor: item.delivery_mode === 'instant' ? '#2563EB' : '#EEF2FF',
-        backgroundColor: '#fff',
-        opacity: isBehind ? 0.86 : 1,
-        transform: [{ scale: isBehind ? 0.97 : 1 }],
-      }}
-    >
-      <View className="w-full h-56 bg-slate-100">
-        {getOrderImage(item) ? (
-          <Image
-            source={{ uri: getOrderImage(item) }}
-            style={{ width: '100%', height: '100%' }}
-            resizeMode="cover"
-          />
-        ) : (
-          <View className="flex-1 items-center justify-center">
-            <Ionicons name="restaurant-outline" size={36} color={Colors.textTertiary} />
-          </View>
-        )}
-      </View>
-      <View className="p-4">
-      {item.delivery_mode === 'instant' ? (
-        <View
-          style={{
-            position: 'absolute',
-            top: 14,
-            right: 16,
-            backgroundColor: '#2563EB',
-            paddingHorizontal: 10,
-            paddingVertical: 4,
-            borderRadius: 999,
-            zIndex: 1,
-          }}
-        >
-          <Text className="text-[10px] font-bold text-white">Instant</Text>
+      <TouchableOpacity
+        activeOpacity={0.82}
+        onPress={() => navigateToOrder(item)}
+        className="rounded-3xl mx-4 shadow-lg overflow-hidden"
+        style={{
+          minHeight: 430,
+          elevation: 6,
+          shadowColor: item.delivery_mode === 'instant' ? '#2563EB' : '#000000',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: item.delivery_mode === 'instant' ? 0.15 : 0.08,
+          shadowRadius: 12,
+          borderWidth: 1,
+          borderColor: item.delivery_mode === 'instant' ? '#2563EB' : '#EEF2FF',
+          backgroundColor: '#fff',
+        }}
+      >
+        <View className="w-full h-56 bg-slate-100">
+          {getOrderImage(item) ? (
+            <Image
+              source={{ uri: getOrderImage(item) }}
+              style={{ width: '100%', height: '100%' }}
+              resizeMode="cover"
+            />
+          ) : (
+            <View className="flex-1 items-center justify-center">
+              <Ionicons name="restaurant-outline" size={36} color={Colors.textTertiary} />
+            </View>
+          )}
         </View>
-      ) : null}
-      <View className="flex-row items-start justify-between mb-2">
-        <View className="flex-row items-start flex-1 mr-3 min-w-0">
-          <View className="w-14 h-14 rounded-2xl overflow-hidden bg-blue-50 items-center justify-center mr-3">
-            {getOrderImage(item) ? (
-              <Image
-                source={{ uri: getOrderImage(item) }}
-                style={{ width: '100%', height: '100%' }}
-                resizeMode="cover"
-              />
-            ) : (
-              <Ionicons name="restaurant-outline" size={20} color={Colors.info} />
-            )}
-          </View>
 
-          <View className="flex-1 min-w-0">
-            <Text className="text-base font-bold text-textPrimary" numberOfLines={2}>
-              {getOrderTitle(item)}
-            </Text>
-            {(item.quantity || 1) > 1 && (
-              <View className="mt-1 self-start px-2 py-0.5 rounded-full bg-blue-100">
-                <Text className="text-xs font-bold text-blue-800">×{item.quantity}</Text>
+        <View className="p-4">
+          {item.delivery_mode === 'instant' ? (
+            <View
+              style={{
+                position: 'absolute',
+                top: 14,
+                right: 16,
+                backgroundColor: '#2563EB',
+                paddingHorizontal: 10,
+                paddingVertical: 4,
+                borderRadius: 999,
+                zIndex: 1,
+              }}
+            >
+              <Text className="text-[10px] font-bold text-white">Instant</Text>
+            </View>
+          ) : null}
+
+          <View className="flex-row items-start justify-between mb-2">
+            <View className="flex-row items-start flex-1 mr-3 min-w-0">
+              <View className="w-14 h-14 rounded-2xl overflow-hidden bg-blue-50 items-center justify-center mr-3">
+                {getOrderImage(item) ? (
+                  <Image
+                    source={{ uri: getOrderImage(item) }}
+                    style={{ width: '100%', height: '100%' }}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <Ionicons name="restaurant-outline" size={20} color={Colors.info} />
+                )}
               </View>
-            )}
+
+              <View className="flex-1 min-w-0">
+                <Text className="text-base font-bold text-textPrimary" numberOfLines={2}>
+                  {getOrderTitle(item)}
+                </Text>
+                {(item.quantity || 1) > 1 && (
+                  <View className="mt-1 self-start px-2 py-0.5 rounded-full bg-blue-100">
+                    <Text className="text-xs font-bold text-blue-800">×{item.quantity}</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+
+            <View className="px-2.5 py-1 rounded-full" style={{ backgroundColor: getStatusColor(item.status) + '15' }}>
+              <Text className="text-xs font-semibold capitalize" style={{ color: getStatusColor(item.status) }}>
+                {item.status}
+              </Text>
+            </View>
           </View>
-        </View>
 
-        <View
-          className="px-2.5 py-1 rounded-full"
-          style={{ backgroundColor: getStatusColor(item.status) + '15' }}
-        >
-          <Text className="text-xs font-semibold capitalize" style={{ color: getStatusColor(item.status) }}>
-            {item.status}
-          </Text>
-        </View>
-      </View>
+          <View className="flex-row flex-wrap mb-2">
+            <View className="px-2.5 py-1 rounded-full mr-2 mb-1" style={{ backgroundColor: '#EDE9FE' }}>
+              <Text className="text-[11px] font-extrabold" style={{ color: '#5B21B6' }}>
+                DATE: {formatOrderDate(item)}
+              </Text>
+            </View>
+            <View className="px-2.5 py-1 rounded-full mb-1" style={{ backgroundColor: '#DBEAFE' }}>
+              <Text className="text-[11px] font-extrabold" style={{ color: '#1D4ED8' }}>
+                SLOT: {formatSlotLabel(item.slot)}
+              </Text>
+            </View>
+          </View>
 
-      {item.delivery_mode === 'instant' ? (
-        <View className="flex-row items-center justify-between mt-1 mb-1.5 px-3 py-2 rounded-xl" style={{ backgroundColor: '#E3F2FD' }}>
-          <View className="flex-row items-center flex-1 pr-2">
-            <Ionicons name="flash-outline" size={14} color={Colors.info} />
-            <Text className="text-xs font-semibold text-blue-700 ml-1" numberOfLines={1}>
-              Instant order
-            </Text>
+          {item.delivery_mode === 'instant' ? (
+            <View className="flex-row items-center justify-between mt-1 mb-1.5 px-3 py-2 rounded-xl" style={{ backgroundColor: '#E3F2FD' }}>
+              <View className="flex-row items-center flex-1 pr-2">
+                <Ionicons name="flash-outline" size={14} color={Colors.info} />
+                <Text className="text-xs font-semibold text-blue-700 ml-1" numberOfLines={1}>Instant order</Text>
+              </View>
+              <View className="flex-row items-center">
+                <Ionicons name="timer-outline" size={14} color={Colors.info} />
+                <Text className="text-xs font-bold text-blue-700 ml-1" numberOfLines={1}>{getInstantCountdown(item)}</Text>
+              </View>
+            </View>
+          ) : null}
+
+          <View className="flex-row items-center mb-1.5">
+            <Ionicons name="person-outline" size={14} color={Colors.textSecondary} />
+            <Text className="text-sm text-textSecondary ml-1.5" numberOfLines={1}>{item.user_name}</Text>
           </View>
           <View className="flex-row items-center">
-            <Ionicons name="timer-outline" size={14} color={Colors.info} />
-            <Text className="text-xs font-bold text-blue-700 ml-1" numberOfLines={1}>
-              {getInstantCountdown(item)}
-            </Text>
+            <Ionicons name="call-outline" size={14} color={Colors.textTertiary} />
+            <Text className="text-xs text-textTertiary ml-1.5" numberOfLines={1}>{item.user_phone}</Text>
           </View>
-        </View>
-      ) : null}
 
-      <View className="flex-row items-center mb-1.5">
-        <Ionicons name="person-outline" size={14} color={Colors.textSecondary} />
-        <Text className="text-sm text-textSecondary ml-1.5" numberOfLines={1}>{item.user_name}</Text>
-      </View>
-      <View className="flex-row items-center justify-between">
-        <View className="flex-row items-center flex-1 pr-2">
-          <Ionicons name="call-outline" size={14} color={Colors.textTertiary} />
-          <Text className="text-xs text-textTertiary ml-1.5" numberOfLines={1}>{item.user_phone}</Text>
-        </View>
-        <View className="flex-row items-center">
-          <Ionicons name="time-outline" size={14} color={Colors.textTertiary} />
-          <Text className="text-xs text-textTertiary ml-1 capitalize" numberOfLines={1}>{item.slot}</Text>
-        </View>
-      </View>
-      {item.package_name && (
-        <View className="flex-row items-center mt-2 bg-blue-50 rounded-lg px-2.5 py-1.5">
-          <Ionicons name="cube-outline" size={14} color={Colors.info} />
-          <Text className="text-xs text-info ml-1.5" style={{ color: Colors.info }}>{item.package_name}</Text>
-        </View>
-      )}
-      {item.delivery_note ? (
-        <View className="flex-row items-center mt-2 bg-amber-50 rounded-lg px-2.5 py-1.5">
-          <Ionicons name="document-text-outline" size={14} color="#D97706" />
-          <Text className="text-xs ml-1.5 flex-1" style={{ color: '#92400E' }} numberOfLines={2}>{item.delivery_note}</Text>
-        </View>
-      ) : null}
+          {item.package_name && (
+            <View className="flex-row items-center mt-2 bg-blue-50 rounded-lg px-2.5 py-1.5">
+              <Ionicons name="cube-outline" size={14} color={Colors.info} />
+              <Text className="text-xs ml-1.5" style={{ color: Colors.info }}>{item.package_name}</Text>
+            </View>
+          )}
 
-      {getOrderAddress(item) ? (
-        <View className="flex-row items-start mt-2 bg-slate-50 rounded-xl px-3 py-2">
-          <Ionicons name="location-outline" size={14} color={Colors.info} style={{ marginTop: 2 }} />
-          <Text className="text-xs text-textSecondary ml-2 flex-1" numberOfLines={2}>
-            {getOrderAddress(item)}
-          </Text>
+          {getOrderAddress(item) ? (
+            <View className="flex-row items-start mt-2 bg-slate-50 rounded-xl px-3 py-2">
+              <Ionicons name="location-outline" size={14} color={Colors.info} style={{ marginTop: 2 }} />
+              <Text className="text-xs text-textSecondary ml-2 flex-1" numberOfLines={2}>
+                {getOrderAddress(item)}
+              </Text>
+            </View>
+          ) : null}
         </View>
-      ) : null}
-      </View>
-    </TouchableOpacity>
+      </TouchableOpacity>
     );
   };
 
-  const resetSwipePosition = () => {
-    Animated.spring(swipe, {
-      toValue: { x: 0, y: 0 },
-      useNativeDriver: false,
-      friction: 7,
-    }).start();
-  };
-
-  const completeSwipe = (direction: 'left' | 'right') => {
-    const lane = direction === 'left' ? 'upcoming' : 'past';
-    const list = lane === 'upcoming' ? upcomingOrders : pastOrders;
-
-    setSwipeLane(lane);
-    if (list.length > 0) {
-      if (lane === 'upcoming') {
-        setUpcomingCardIndex((prev) => (prev + 1) % list.length);
-      } else {
-        setPastCardIndex((prev) => (prev + 1) % list.length);
-      }
-    }
-
-    swipe.setValue({ x: 0, y: 0 });
-    setIsSwipeAnimating(false);
-  };
-
-  const forceSwipe = (direction: 'left' | 'right') => {
-    if (isSwipeAnimating) return;
-    setIsSwipeAnimating(true);
-
-    const toX = direction === 'left' ? -screenWidth * 1.15 : screenWidth * 1.15;
-    Animated.timing(swipe, {
-      toValue: { x: toX, y: 0 },
-      duration: 210,
-      useNativeDriver: false,
-    }).start(() => completeSwipe(direction));
-  };
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gesture) =>
-        Math.abs(gesture.dx) > 8 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
-      onPanResponderMove: Animated.event([null, { dx: swipe.x, dy: swipe.y }], {
-        useNativeDriver: false,
-      }),
-      onPanResponderRelease: (_, gesture) => {
-        if (gesture.dx > swipeThreshold) {
-          forceSwipe('right');
-        } else if (gesture.dx < -swipeThreshold) {
-          forceSwipe('left');
-        } else {
-          resetSwipePosition();
-        }
-      },
-      onPanResponderTerminate: resetSwipePosition,
-    }),
-  ).current;
-
-  const cardRotation = swipe.x.interpolate({
-    inputRange: [-screenWidth, 0, screenWidth],
-    outputRange: ['-10deg', '0deg', '10deg'],
-    extrapolate: 'clamp',
-  });
-
-  const swipeCardStyle = {
-    transform: [{ translateX: swipe.x }, { translateY: swipe.y }, { rotate: cardRotation }],
-  };
+  const tabs: Array<{ key: OrdersTab; label: string; count: number }> = [
+    { key: 'today', label: 'Today', count: todaySliderOrders.length },
+    { key: 'tomorrow', label: 'Tomorrow', count: tomorrowSliderOrders.length },
+    { key: 'delivered', label: 'Delivered', count: deliveredSliderOrders.length },
+  ];
 
   return (
     <SafeAreaView className="flex-1 bg-blue-600" edges={['top']}>
       <StatusBar style="light" backgroundColor="#2563EB" />
-      {/* Blue accent header */}
+
       <View className="w-full bg-blue-600 rounded-b-3xl pb-6 pt-8 px-6 mb-4 shadow-md" style={{ elevation: 6 }}>
         <Text className="text-2xl font-extrabold text-white mb-1 tracking-wide">Orders</Text>
         <Text className="text-base text-blue-100 mb-2">Track and manage your deliveries</Text>
@@ -460,11 +559,6 @@ export default function OrdersScreen() {
             <Text className="text-lg font-bold text-white">{deliveredTodayCount}</Text>
           </View>
         </View>
-
-        <View className="mt-2 rounded-xl px-3 py-2" style={{ backgroundColor: 'rgba(255,255,255,0.16)' }}>
-          <Text className="text-blue-100 text-xs">Swipe Deck</Text>
-          <Text className="text-white text-sm font-semibold">Left: Upcoming  |  Right: Past</Text>
-        </View>
       </View>
 
       <ScrollView
@@ -473,52 +567,49 @@ export default function OrdersScreen() {
         contentContainerStyle={{ paddingBottom: 32 }}
         showsVerticalScrollIndicator={false}
       >
-        <View className="flex-row bg-blue-100 rounded-xl p-1 mt-2 mx-4 mb-4">
-          {([
-            { key: 'upcoming' as const, label: `Upcoming (${upcomingOrders.length})` },
-            { key: 'past' as const, label: `Past (${pastOrders.length})` },
-          ]).map((t) => (
-            <TouchableOpacity
-              key={t.key}
-              onPress={() => setSwipeLane(t.key)}
-              className="flex-1 py-2.5 rounded-lg items-center"
-              style={swipeLane === t.key ? { backgroundColor: '#2563EB' } : {}}
-            >
-              <Text
-                className="text-sm font-semibold"
-                style={{ color: swipeLane === t.key ? '#fff' : '#2563EB' }}
-              >
-                {t.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
+        <View className="mx-4 mb-3 mt-1 rounded-xl px-2 py-2" style={{ backgroundColor: '#EAF0FF' }}>
+          <View className="flex-row">
+            {tabs.map((tab) => {
+              const active = activeTab === tab.key;
+              return (
+                <TouchableOpacity
+                  key={tab.key}
+                  onPress={() => setActiveTab(tab.key)}
+                  className="flex-1 h-10 rounded-lg items-center justify-center mx-1"
+                  style={{ backgroundColor: active ? '#DBEAFE' : 'transparent' }}
+                >
+                  <Text className="text-sm font-bold" style={{ color: active ? '#1D4ED8' : '#475569' }}>
+                    {tab.label} {tab.count}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </View>
 
-        <Text className="text-xs text-textTertiary mx-6 mb-2">
-          Swipe left for upcoming, swipe right for past.
-        </Text>
-
-        <View style={{ minHeight: 520, justifyContent: 'center', marginBottom: 12 }}>
-          <View style={{ position: 'absolute', width: '100%', paddingHorizontal: 0 }}>
-            {renderOrderCard(nextOrder, true)}
-          </View>
-          <Animated.View {...panResponder.panHandlers} style={swipeCardStyle}>
-            {renderOrderCard(currentOrder)}
-          </Animated.View>
+        <View style={{ minHeight: 440, justifyContent: 'center', marginBottom: 8 }}>
+          {renderOrderCard(currentOrder)}
         </View>
 
         <View className="flex-row items-center justify-center mb-2">
           <TouchableOpacity
-            onPress={() => forceSwipe('right')}
+            onPress={goToPrev}
             className="w-12 h-12 rounded-full items-center justify-center mr-4"
             style={{ backgroundColor: '#FFE4E6' }}
+            disabled={!activeDeckLength}
           >
             <Ionicons name="arrow-back" size={22} color="#E11D48" />
           </TouchableOpacity>
+
+          <Text className="text-lg font-bold" style={{ color: Colors.textSecondary, minWidth: 70, textAlign: 'center' }}>
+            {activeDeckLength ? `${normalizedActiveIndex + 1}/${activeDeckLength}` : '0/0'}
+          </Text>
+
           <TouchableOpacity
-            onPress={() => forceSwipe('left')}
-            className="w-12 h-12 rounded-full items-center justify-center"
+            onPress={goToNext}
+            className="w-12 h-12 rounded-full items-center justify-center ml-4"
             style={{ backgroundColor: '#DBEAFE' }}
+            disabled={!activeDeckLength}
           >
             <Ionicons name="arrow-forward" size={22} color="#2563EB" />
           </TouchableOpacity>
