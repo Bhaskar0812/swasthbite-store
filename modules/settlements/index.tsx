@@ -306,8 +306,15 @@ export default function FinanceScreen() {
     const gross = toAmount((item as any)?.gross_amount);
     const net = toAmount(item.net_amount);
     const payable = toAmount((item as any)?.payable_amount);
+    const hasDisplayPayable = (item as any)?.display_payable_amount != null;
+    const displayPayable = toAmount((item as any)?.display_payable_amount);
     const settled = toAmount((item as any)?.settled_amount);
     const carryFwd = toAmount((item as any)?.carry_forward);
+    const hasDisplayCarryFwd = (item as any)?.display_carry_forward != null;
+    const displayCarryFwd = toAmount((item as any)?.display_carry_forward);
+    const serverSuppressedCarryForward = Boolean(
+      (item as any)?.suppress_carry_forward_from_settled_cash_upi,
+    );
     const penaltyDed = toAmount((item as any)?.penalty_deductions);
     const commissionDed = toAmount((item as any)?.commission_deductions);
     const deliveryDed = toAmount((item as any)?.delivery_deductions);
@@ -328,12 +335,19 @@ export default function FinanceScreen() {
       : 0;
 
     const shouldSuppressCarryForward =
+      serverSuppressedCarryForward ||
       carryFwd > 0 &&
       ['completed', 'settled'].includes(previousStatus) &&
       Math.abs(previousCashUpiAdj - carryFwd) < 0.01;
 
-    const effectiveCarryFwd = shouldSuppressCarryForward ? 0 : carryFwd;
-    const payableForDisplay = payable - (carryFwd - effectiveCarryFwd);
+    const effectiveCarryFwd =
+      hasDisplayCarryFwd || shouldSuppressCarryForward
+        ? displayCarryFwd
+        : carryFwd;
+    const payableForDisplay =
+      hasDisplayPayable || shouldSuppressCarryForward
+        ? displayPayable
+        : payable - (carryFwd - effectiveCarryFwd);
 
     return (
       <View className="bg-white rounded-xl overflow-hidden mb-3 mx-4" style={{ borderWidth: 1, borderColor: '#e5e7eb' }}>

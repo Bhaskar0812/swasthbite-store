@@ -131,7 +131,10 @@ export type Settlement = {
   penalties?: number;
   net_amount: number;
   carry_forward?: number;
+  display_carry_forward?: number;
   payable_amount?: number;
+  display_payable_amount?: number;
+  suppress_carry_forward_from_settled_cash_upi?: boolean;
   cash_upi_direct_payment_bulk_orders?: number;
   status?:
     | "pending"
