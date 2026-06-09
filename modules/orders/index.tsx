@@ -51,8 +51,33 @@ export default function OrdersScreen() {
     return normalized && normalized !== '-' ? normalized : '';
   };
 
+  const parseTrailingQuantity = (value?: string) => {
+    const label = String(value || '').trim();
+    const match = label.match(/\bx\s*(\d+)\s*$/i);
+    if (!match) return null;
+    const parsed = Number(match[1]);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  };
+
+  const stripTrailingQuantity = (value?: string) => {
+    const normalized = normalizeText(value);
+    if (!normalized) return '';
+    return normalized.replace(/\s*x\s*\d+\s*$/i, '').trim();
+  };
+
+  const getOrderQuantity = (item: DashboardOrder) => {
+    const directQty = Number((item as any)?.quantity);
+    if (Number.isFinite(directQty) && directQty > 0) return Math.floor(directQty);
+
+    return (
+      parseTrailingQuantity((item as any)?.meal_name) ||
+      parseTrailingQuantity((item as any)?.package_name) ||
+      1
+    );
+  };
+
   const getOrderTitle = (item: DashboardOrder) =>
-    normalizeText(item.meal_name) || normalizeText(item.package_name) || 'Order';
+    stripTrailingQuantity(item.meal_name) || stripTrailingQuantity(item.package_name) || 'Order';
 
   const getOrderImage = (item: DashboardOrder) => {
     const direct = pickImageUrl(item, [
@@ -461,9 +486,9 @@ export default function OrdersScreen() {
                 <Text className="text-base font-bold text-textPrimary" numberOfLines={2}>
                   {getOrderTitle(item)}
                 </Text>
-                {(item.quantity || 1) > 1 && (
+                {getOrderQuantity(item) > 1 && (
                   <View className="mt-1 self-start px-2 py-0.5 rounded-full bg-blue-100">
-                    <Text className="text-xs font-bold text-blue-800">×{item.quantity}</Text>
+                    <Text className="text-xs font-bold text-blue-800">×{getOrderQuantity(item)}</Text>
                   </View>
                 )}
               </View>

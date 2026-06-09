@@ -50,8 +50,39 @@ export default function DashboardScreen() {
     return normalized && normalized !== '-' ? normalized : '';
   };
 
-  const getOrderTitle = (order: DashboardOrder) =>
-    normalizeText(order.meal_name) || normalizeText(order.package_name) || 'Order';
+  const parseTrailingQuantity = (value?: string) => {
+    const label = String(value || '').trim();
+    const match = label.match(/\bx\s*(\d+)\s*$/i);
+    if (!match) return null;
+    const parsed = Number(match[1]);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  };
+
+  const stripTrailingQuantity = (value?: string) => {
+    const normalized = normalizeText(value);
+    if (!normalized) return '';
+    return normalized.replace(/\s*x\s*\d+\s*$/i, '').trim();
+  };
+
+  const getOrderQuantity = (order: DashboardOrder) => {
+    const directQty = Number((order as any)?.quantity);
+    if (Number.isFinite(directQty) && directQty > 0) return Math.floor(directQty);
+
+    return (
+      parseTrailingQuantity((order as any)?.meal_name) ||
+      parseTrailingQuantity((order as any)?.package_name) ||
+      1
+    );
+  };
+
+  const getOrderTitle = (order: DashboardOrder) => {
+    const baseTitle =
+      stripTrailingQuantity(order.meal_name) ||
+      stripTrailingQuantity(order.package_name) ||
+      'Order';
+    const qty = getOrderQuantity(order);
+    return qty > 1 ? `${baseTitle} x${qty}` : baseTitle;
+  };
   const getOrderImage = (order: DashboardOrder) => {
     const direct = pickImageUrl(order, [
       'package_image',
