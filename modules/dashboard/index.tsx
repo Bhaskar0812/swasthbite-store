@@ -23,7 +23,7 @@ import { transitionAcceptedOrder } from 'services/incomingOrderAlertService';
 import LiveOrderActivityBoard from 'components/LiveOrderActivityBoard';
 import { formatCountdown } from 'utils/orderActivity';
 import type { DashboardOrder } from 'types';
-import { pickImageUrl } from 'utils/image';
+import { pickImageUrl, resolveImageUrl } from 'utils/image';
 
 const { width } = Dimensions.get('window');
 
@@ -87,6 +87,12 @@ export default function DashboardScreen() {
     return qty > 1 ? `${baseTitle} x${qty}` : baseTitle;
   };
   const getOrderImage = (order: DashboardOrder) => {
+    const bundleImage =
+      resolveImageUrl((order as any)?.bundle_items?.[0]?.image) ||
+      resolveImageUrl((order as any)?.delivery_dates?.[0]?.bundle_items?.[0]?.image) ||
+      resolveImageUrl((order as any)?.delivery_dates?.[0]?.meal_image);
+    if (bundleImage) return bundleImage;
+
     const direct = pickImageUrl(order, [
       'package_image',
       'image',

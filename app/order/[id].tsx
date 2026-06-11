@@ -326,7 +326,11 @@ export default function StoreOrderDetailScreen() {
     (a, b) => new Date(a).getTime() - new Date(b).getTime(),
   );
 
-  const packageImage = pickImageUrl(order, [
+  const packageImage =
+    resolveImageUrl(order?.bundle_items?.[0]?.image) ||
+    resolveImageUrl(order?.delivery_dates?.[0]?.bundle_items?.[0]?.image) ||
+    resolveImageUrl(order?.delivery_dates?.[0]?.meal_image) ||
+    pickImageUrl(order, [
     'image',
     'image_url',
     'package_image',

@@ -12,13 +12,19 @@ export async function registerForPushNotifications(): Promise<string | null> {
   try {
     const settings = await Notifications.getPermissionsAsync();
 
-    if (settings.status === "undetermined") {
+    if (!settings.granted) {
+      if (settings.status === "denied") {
+        console.warn("⚠️ Notification permission denied — enable in Settings");
+        return null;
+      }
+
       const permission = await Notifications.requestPermissionsAsync({
         ios: { allowAlert: true, allowBadge: true, allowSound: true },
       });
-      if (permission.status !== "granted") return null;
-    } else if (settings.status === "denied") {
-      return null;
+      if (!permission.granted) {
+        console.warn("⚠️ Notification permission not granted");
+        return null;
+      }
     }
 
     const projectId =

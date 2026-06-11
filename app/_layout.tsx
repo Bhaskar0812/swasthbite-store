@@ -14,8 +14,10 @@ import {
   clearIncomingOrderAlert,
   handleIncomingOrderStatusChange,
   normalizeIncomingOrderPayload,
+  prepareIncomingOrderNotifications,
 } from 'services/incomingOrderAlertService';
 import { useSyncPushToken } from 'hooks/useSyncPushToken';
+import { registerForPushNotifications } from 'services/pushNotificationService';
 import AnimatedSplash from 'components/AnimatedSplash';
 import Toast from 'react-native-toast-message';
 import '../global.css';
@@ -56,7 +58,10 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (token && user?._id) {
+      registerForPushNotifications().catch(() => null);
+      prepareIncomingOrderNotifications().catch(() => null);
       connectSocket(token, user._id);
+      fetchDashboard().catch(() => null);
       fetchUnreadCount();
     } else if (!token) {
       disconnectSocket();

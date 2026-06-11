@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { storeService } from "services/storeService";
 import { syncOngoingNextOrderActivity } from 'services/ongoingOrderActivityService';
+import { syncPendingIncomingOrdersFromDashboard } from 'services/incomingOrderAlertService';
 import type { DashboardData, MenuItem, Package } from "types";
 
 const unwrapData = <T>(payload: any): T => {
@@ -46,6 +47,7 @@ export const useStoreStore = create<StoreState>((set, get) => ({
         isOnline: dashboardData?.is_online ?? false,
         loading: false,
       });
+      await syncPendingIncomingOrdersFromDashboard(dashboardData);
       await syncOngoingNextOrderActivity(dashboardData);
     } catch {
       set({ loading: false });

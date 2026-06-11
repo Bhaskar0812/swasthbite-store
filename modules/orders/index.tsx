@@ -14,7 +14,7 @@ import { router } from 'expo-router';
 import { Colors } from 'constants/theme';
 import { useStoreStore } from 'store/storeStore';
 import type { DashboardOrder } from 'types';
-import { pickImageUrl } from 'utils/image';
+import { pickImageUrl, resolveImageUrl } from 'utils/image';
 import LiveOrderActivityBoard from 'components/LiveOrderActivityBoard';
 import { formatCountdown, getInstantDeadline } from 'utils/orderActivity';
 
@@ -82,6 +82,12 @@ export default function OrdersScreen() {
     stripTrailingQuantity(item.meal_name) || stripTrailingQuantity(item.package_name) || 'Order';
 
   const getOrderImage = (item: DashboardOrder) => {
+    const bundleImage =
+      resolveImageUrl((item as any)?.bundle_items?.[0]?.image) ||
+      resolveImageUrl((item as any)?.delivery_dates?.[0]?.bundle_items?.[0]?.image) ||
+      resolveImageUrl((item as any)?.delivery_dates?.[0]?.meal_image);
+    if (bundleImage) return bundleImage;
+
     const direct = pickImageUrl(item, [
       'package_image',
       'image',

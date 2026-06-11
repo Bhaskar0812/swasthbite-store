@@ -212,12 +212,14 @@ export async function syncOngoingNextOrderActivity(
     const focusOrder = summary.focusOrder;
 
     if (Platform.OS === "ios") {
-      if (!canUseIosLiveActivity()) return;
-      await syncIosLiveActivity(dashboard);
-      return;
+      if (canUseIosLiveActivity()) {
+        await syncIosLiveActivity(dashboard);
+        return;
+      }
+      // Fallback: standard notification when Live Activity native module unavailable
     }
 
-    if (Platform.OS !== "android") return;
+    if (Platform.OS !== "android" && Platform.OS !== "ios") return;
 
     if (!focusOrder) {
       await Notifications.dismissNotificationAsync(
@@ -253,7 +255,16 @@ export async function syncOngoingNextOrderActivity(
       content: {
         title,
         body: [lead, buildAndroidBody(dashboard)].filter(Boolean).join("\n"),
-        channelId: ONGOING_CHANNEL_ID,
+        ...(Platform.OS === "android"
+          ? {
+              channelId: ONGOING_CHANNEL_ID,
+              priority: Notifications.AndroidNotificationPriority.MAX,
+              autoDismiss: false,
+              sticky: true,
+            }
+          : {
+              interruptionLevel: "active",
+            }),
         data: {
           type: "ongoing_next_order",
           orderId: getOrderId(focusOrder),
@@ -261,9 +272,6 @@ export async function syncOngoingNextOrderActivity(
           deliveryMode: focusOrder.delivery_mode || "scheduled",
         },
         sound: false,
-        priority: Notifications.AndroidNotificationPriority.MAX,
-        autoDismiss: false,
-        sticky: true,
       },
       trigger: null,
     });

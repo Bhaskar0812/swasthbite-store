@@ -49,6 +49,21 @@ export const normalizeIncomingOrderPayload = (
   );
   if (!orderId) return null;
 
+  const deliveryDates = Array.isArray(subscription?.delivery_dates)
+    ? subscription.delivery_dates
+    : [];
+  const pendingDelivery = deliveryDates.find((delivery) =>
+    ["scheduled", "pending", "preparing"].includes(
+      String(delivery?.status || "").toLowerCase(),
+    ),
+  );
+  const deliveryStatus = String(
+    payload.delivery_status ||
+      pendingDelivery?.status ||
+      deliveryDates[0]?.status ||
+      "",
+  ).toLowerCase();
+
   return {
     orderId,
     packageName:
@@ -64,7 +79,10 @@ export const normalizeIncomingOrderPayload = (
       payload.delivery_mode || subscription?.delivery_mode || "scheduled",
     ).toLowerCase(),
     status: String(
-      payload.status || subscription?.status || "pending",
+      payload.status ||
+        deliveryStatus ||
+        subscription?.status ||
+        "pending",
     ).toLowerCase(),
     instantDeadlineAt:
       normalizeText(payload.instant_deadline_at) ||
@@ -78,6 +96,34 @@ export const normalizeIncomingOrderPayload = (
         0,
     ),
   };
+};
+
+const ensureNotificationPermission = async () => {
+  const existing = await Notifications.getPermissionsAsync();
+  if (
+    existing.granted ||
+    existing.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL
+  ) {
+    return true;
+  }
+
+  if (existing.status === "denied") {
+    return false;
+  }
+
+  const requested = await Notifications.requestPermissionsAsync({
+    ios: { allowAlert: true, allowBadge: true, allowSound: true },
+  });
+
+  return (
+    requested.granted ||
+    requested.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL
+  );
+};
+
+export const prepareIncomingOrderNotifications = async () => {
+  await ensureNotificationPermission();
+  await ensureIncomingOrdersChannel();
 };
 
 const ensureIncomingOrdersChannel = async () => {
@@ -114,39 +160,58 @@ const buildNotificationBody = (order: IncomingOrderInfo) => {
   return `${modeLabel} #${shortId} • ${order.packageName} • ${order.customerName} • ${formatTimerText(order)}`;
 };
 
+const buildIncomingNotificationContent = (
+  order: IncomingOrderInfo,
+  title: string,
+): Notifications.NotificationContentInput => ({
+  title,
+  body: buildNotificationBody(order),
+  sound: "default",
+  badge: 1,
+  data: {
+    type: "order_new",
+    event: "order:new",
+    subscription_id: order.orderId,
+    orderId: order.orderId,
+    delivery_mode: order.deliveryMode,
+    status: order.status,
+    requires_acceptance: true,
+  },
+  ...(Platform.OS === "android"
+    ? {
+        channelId: INCOMING_CHANNEL_ID,
+        priority: Notifications.AndroidNotificationPriority.MAX,
+        sticky: true,
+        autoDismiss: false,
+      }
+    : {
+        interruptionLevel: "active",
+      }),
+});
+
 const presentIncomingNotification = async (
   order: IncomingOrderInfo,
   title: string,
 ) => {
+  const hasPermission = await ensureNotificationPermission();
+  if (!hasPermission) {
+    console.warn("Incoming order alert skipped — notification permission denied");
+    return;
+  }
+
   await ensureIncomingOrdersChannel();
+
+  const content = buildIncomingNotificationContent(order, title);
+
+  // Present immediately so Android shows it in the status bar even in foreground.
+  if (typeof Notifications.presentNotificationAsync === "function") {
+    await Notifications.presentNotificationAsync(content);
+    return;
+  }
 
   await Notifications.scheduleNotificationAsync({
     identifier: INCOMING_NOTIFICATION_ID,
-    content: {
-      title,
-      body: buildNotificationBody(order),
-      sound: "default",
-      badge: 1,
-      data: {
-        type: "order_new",
-        event: "order:new",
-        subscription_id: order.orderId,
-        orderId: order.orderId,
-        delivery_mode: order.deliveryMode,
-        status: order.status,
-        requires_acceptance: true,
-      },
-      ...(Platform.OS === "android"
-        ? {
-            channelId: INCOMING_CHANNEL_ID,
-            priority: Notifications.AndroidNotificationPriority.MAX,
-            sticky: true,
-            autoDismiss: false,
-          }
-        : {
-            interruptionLevel: "timeSensitive",
-          }),
-    },
+    content,
     trigger: null,
   });
 };
@@ -183,7 +248,31 @@ export async function alertIncomingOrder(
   const order = normalizeIncomingOrderPayload(payload);
   if (!order) return;
 
-  const needsAcceptance = ["pending", "scheduled", ""].includes(order.status);
+  const requiresAcceptance =
+    payload?.requires_acceptance === true ||
+    payload?.data?.requires_acceptance === true;
+  const awaitingStatuses = new Set([
+    "pending",
+    "scheduled",
+    "active",
+    "",
+  ]);
+  const inProgressStatuses = new Set([
+    "preparing",
+    "accepted",
+    "assigned",
+    "out_for_delivery",
+    "picked_up",
+    "delivered",
+    "completed",
+    "cancelled",
+    "skipped",
+  ]);
+  const needsAcceptance =
+    requiresAcceptance ||
+    awaitingStatuses.has(order.status) ||
+    (order.deliveryMode === "instant" && !inProgressStatuses.has(order.status));
+
   if (!needsAcceptance) {
     await clearIncomingOrderAlert(order.orderId);
     return;
@@ -293,4 +382,41 @@ export async function refreshIncomingOrderActivity(
   dashboard: DashboardData | null | undefined,
 ) {
   await syncOngoingNextOrderActivity(dashboard);
+}
+
+const dashboardOrderToPayload = (order: any) => {
+  const subscriptionId = String(order?.order_id || order?.subscription_id || "");
+  return {
+    subscription_id: subscriptionId,
+    orderId: subscriptionId,
+    package_name: order?.package_name || order?.meal_name,
+    customer_name: order?.user_name,
+    delivery_mode: order?.delivery_mode || "scheduled",
+    delivery_status: order?.status || "scheduled",
+    status: order?.status || "scheduled",
+    requires_acceptance: true,
+    instant_deadline_at: order?.instant_deadline_at,
+    total_amount: order?.total_amount ?? order?.total_price,
+  };
+};
+
+/** Fallback when socket/push missed — alert from dashboard polling data */
+export async function syncPendingIncomingOrdersFromDashboard(
+  dashboard: DashboardData | null | undefined,
+) {
+  if (!dashboard?.today_orders?.length) return;
+
+  const pendingOrders = dashboard.today_orders.filter((order) => {
+    const status = String(order.status || "").toLowerCase();
+    const mode = String((order as any)?.delivery_mode || "").toLowerCase();
+    if (["pending", "scheduled"].includes(status)) return true;
+    return mode === "instant" && !["delivered", "cancelled", "preparing", "out_for_delivery"].includes(status);
+  });
+
+  for (const order of pendingOrders) {
+    const orderId = String((order as any)?.order_id || (order as any)?.subscription_id || "");
+    if (!orderId || alertedOrders.has(orderId)) continue;
+
+    await alertIncomingOrder(dashboardOrderToPayload(order), dashboard);
+  }
 }
