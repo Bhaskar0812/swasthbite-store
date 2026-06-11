@@ -15,6 +15,8 @@ import { Colors } from 'constants/theme';
 import { useStoreStore } from 'store/storeStore';
 import type { DashboardOrder } from 'types';
 import { pickImageUrl } from 'utils/image';
+import LiveOrderActivityBoard from 'components/LiveOrderActivityBoard';
+import { formatCountdown, getInstantDeadline } from 'utils/orderActivity';
 
 type OrdersTab = 'today' | 'tomorrow' | 'delivered';
 
@@ -42,7 +44,7 @@ export default function OrdersScreen() {
   }, []);
 
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 15000);
+    const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
 
@@ -515,15 +517,19 @@ export default function OrdersScreen() {
           </View>
 
           {item.delivery_mode === 'instant' ? (
-            <View className="flex-row items-center justify-between mt-1 mb-1.5 px-3 py-2 rounded-xl" style={{ backgroundColor: '#E3F2FD' }}>
-              <View className="flex-row items-center flex-1 pr-2">
-                <Ionicons name="flash-outline" size={14} color={Colors.info} />
-                <Text className="text-xs font-semibold text-blue-700 ml-1" numberOfLines={1}>Instant order</Text>
+            <View className="mt-1 mb-1.5 px-3 py-3 rounded-2xl" style={{ backgroundColor: '#1D4ED8' }}>
+              <View className="flex-row items-center justify-center mb-1">
+                <Ionicons name="flash" size={14} color="#BFDBFE" />
+                <Text className="text-[10px] font-bold text-blue-100 ml-1 uppercase tracking-widest">
+                  Instant • live timer
+                </Text>
               </View>
-              <View className="flex-row items-center">
-                <Ionicons name="timer-outline" size={14} color={Colors.info} />
-                <Text className="text-xs font-bold text-blue-700 ml-1" numberOfLines={1}>{getInstantCountdown(item)}</Text>
-              </View>
+              <Text className="text-3xl font-black text-white text-center tracking-wider">
+                {formatCountdown(getInstantDeadline(item), now, { withSeconds: true }) || '—'}
+              </Text>
+              <Text className="text-[11px] text-blue-100 text-center mt-1">
+                Swipe other cards above to compare time left
+              </Text>
             </View>
           ) : null}
 
@@ -592,7 +598,14 @@ export default function OrdersScreen() {
         contentContainerStyle={{ paddingBottom: 32 }}
         showsVerticalScrollIndicator={false}
       >
-        <View className="mx-4 mb-3 mt-1 rounded-xl px-2 py-2" style={{ backgroundColor: '#EAF0FF' }}>
+        <View className="mx-4 mt-1">
+          <LiveOrderActivityBoard
+            dashboard={dashboard}
+            onOrderPress={navigateToOrder}
+          />
+        </View>
+
+        <View className="mx-4 mb-3 rounded-xl px-2 py-2" style={{ backgroundColor: '#EAF0FF' }}>
           <View className="flex-row">
             {tabs.map((tab) => {
               const active = activeTab === tab.key;

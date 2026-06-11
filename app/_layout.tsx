@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -8,7 +8,13 @@ import { useAuthStore } from 'store/authStore';
 import { connectSocket, disconnectSocket, getSocket } from 'services/socket';
 import { useNotificationStore } from 'store/notificationStore';
 import { useStoreStore } from 'store/storeStore';
-import { clearOngoingNextOrderActivity } from 'services/ongoingOrderActivityService';
+import { clearOngoingNextOrderActivity, tickOngoingOrderActivity } from 'services/ongoingOrderActivityService';
+import {
+  alertIncomingOrder,
+  clearIncomingOrderAlert,
+  handleIncomingOrderStatusChange,
+  normalizeIncomingOrderPayload,
+} from 'services/incomingOrderAlertService';
 import { useSyncPushToken } from 'hooks/useSyncPushToken';
 import AnimatedSplash from 'components/AnimatedSplash';
 import Toast from 'react-native-toast-message';
@@ -34,8 +40,7 @@ export default function RootLayout() {
   const fetchUnreadCount = useNotificationStore((s) => s.fetchUnreadCount);
   const [showSplash, setShowSplash] = useState(true);
   const [appReady, setAppReady] = useState(false);
-  const lastNotifiedOrderRef = useRef<string>('');
-  const ringTimeoutsRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
+  const dashboard = useStoreStore((s) => s.dashboard);
 
   // Sync push token with backend whenever authenticated
   useSyncPushToken();
@@ -56,6 +61,7 @@ export default function RootLayout() {
     } else if (!token) {
       disconnectSocket();
       clearOngoingNextOrderActivity();
+      clearIncomingOrderAlert();
     }
     return () => {
       disconnectSocket();
@@ -63,6 +69,18 @@ export default function RootLayout() {
   }, [token, user?._id]);
 
   useEffect(() => {
+    const receivedSub = Notifications.addNotificationReceivedListener((notification) => {
+      const data = notification?.request?.content?.data as Record<string, any> | undefined;
+      if (!data) return;
+
+      const eventType = String(data.type || data.event || '').toLowerCase();
+      if (eventType === 'order_new' || eventType === 'order:new') {
+        alertIncomingOrder(data, dashboard).catch(() => null);
+        fetchDashboard().catch(() => null);
+        fetchUnreadCount().catch(() => null);
+      }
+    });
+
     const responseSub = Notifications.addNotificationResponseReceivedListener((response) => {
       const data = response?.notification?.request?.content?.data as Record<string, any> | undefined;
       const candidates = [
@@ -89,9 +107,10 @@ export default function RootLayout() {
     });
 
     return () => {
+      receivedSub.remove();
       responseSub.remove();
     };
-  }, []);
+  }, [dashboard, fetchDashboard, fetchUnreadCount]);
 
   useEffect(() => {
     if (!token) return;
@@ -117,56 +136,13 @@ export default function RootLayout() {
         vibrationPattern: [0, 400, 250, 400, 250, 400],
         lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
         sound: 'default',
+        bypassDnd: true,
       });
     };
 
-    const presentNewOrderNotification = async (payload: any) => {
-      const orderId = String(payload?.order_id ?? payload?.subscription_id ?? '').trim();
-      if (orderId && lastNotifiedOrderRef.current === orderId) return;
-      if (orderId) lastNotifiedOrderRef.current = orderId;
-
-      await ensureOrdersChannel();
-
-      const message = payload?.subscription_id
-        ? `Order #${String(payload.subscription_id).slice(-6).toUpperCase()} is waiting for acceptance`
-        : 'A new order has arrived';
-
-      const status = String(payload?.status || payload?.delivery_status || 'pending').replaceAll('_', ' ');
-      const timerText = payload?.instant_deadline_at
-        ? `Accept before ${new Date(payload.instant_deadline_at).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}`
-        : 'Please accept and start preparing';
-
-      const scheduleAlert = async (title: string, body: string) => {
-        await Notifications.scheduleNotificationAsync({
-          content: {
-            title,
-            body,
-            sound: 'default',
-            badge: 1,
-            data: { orderId },
-            ...(Platform.OS === 'android'
-              ? {
-                channelId: 'orders',
-                priority: Notifications.AndroidNotificationPriority.MAX,
-                sticky: true,
-                autoDismiss: false,
-              }
-              : {}),
-          },
-          trigger: null,
-        });
-      };
-
-      await scheduleAlert('New order received', `${message} • ${timerText}`);
-
-      const repeatTimeout = setTimeout(() => {
-        scheduleAlert('Reminder: New order', `Status: ${status}. ${timerText}`).catch(() => null);
-      }, 3500);
-      ringTimeoutsRef.current.push(repeatTimeout);
-    };
-
     const presentOrderStatusNotification = async (payload: any, fallbackTitle: string) => {
-      const orderId = String(payload?.order_id ?? payload?.subscription_id ?? '').trim();
+      const normalized = normalizeIncomingOrderPayload(payload);
+      const orderId = normalized?.orderId || String(payload?.order_id ?? payload?.subscription_id ?? '').trim();
       const rawStatus = String(payload?.status || payload?.delivery_status || '').trim();
       const statusLabel = rawStatus ? rawStatus.replaceAll('_', ' ') : 'updated';
 
@@ -191,17 +167,22 @@ export default function RootLayout() {
     };
 
     const onNewOrder = (payload: any) => {
-      presentNewOrderNotification(payload).catch((error) => {
+      alertIncomingOrder(payload, dashboard).catch((error) => {
         console.error('Failed to present new order notification', error);
       });
 
+      const normalized = normalizeIncomingOrderPayload(payload);
       refreshStoreState(
-        'New order received',
-        payload?.subscription_id ? `Order #${String(payload.subscription_id).slice(-6).toUpperCase()} is ready` : 'A new order has arrived',
+        normalized?.deliveryMode === 'instant' ? 'Instant order received' : 'New order received',
+        normalized
+          ? `Order #${normalized.orderId.slice(-6).toUpperCase()} • ${normalized.packageName}`
+          : 'A new order has arrived',
       );
     };
 
     const onOrderUpdated = (payload: any) => {
+      handleIncomingOrderStatusChange(payload, dashboard).catch(() => null);
+
       presentOrderStatusNotification(payload, 'Order status updated').catch((error) => {
         console.error('Failed to present order status notification', error);
       });
@@ -213,6 +194,11 @@ export default function RootLayout() {
     };
 
     const onOrderCancelled = (payload: any) => {
+      handleIncomingOrderStatusChange({
+        ...payload,
+        status: 'cancelled',
+      }, dashboard).catch(() => null);
+
       refreshStoreState(
         'Order cancelled',
         payload?.subscription_id ? `Order #${String(payload.subscription_id).slice(-6).toUpperCase()} was cancelled` : 'An order was cancelled',
@@ -261,8 +247,6 @@ export default function RootLayout() {
     });
 
     return () => {
-      ringTimeoutsRef.current.forEach((timerId) => clearTimeout(timerId));
-      ringTimeoutsRef.current = [];
       socket.off('order:new', onNewOrder);
       socket.off('order:updated', onOrderUpdated);
       socket.off('order:cancelled', onOrderCancelled);
@@ -272,7 +256,7 @@ export default function RootLayout() {
       socket.off('store:toggled', onStoreToggled);
       socket.off('connect');
     };
-  }, [token, fetchDashboard, fetchUnreadCount]);
+  }, [token, dashboard, fetchDashboard, fetchUnreadCount]);
 
   useEffect(() => {
     if (!token) return;
@@ -285,6 +269,16 @@ export default function RootLayout() {
       clearInterval(intervalId);
     };
   }, [token, fetchDashboard]);
+
+  useEffect(() => {
+    if (!token || !dashboard) return;
+
+    const timerId = setInterval(() => {
+      tickOngoingOrderActivity(dashboard).catch(() => null);
+    }, 15000);
+
+    return () => clearInterval(timerId);
+  }, [token, dashboard]);
 
   useEffect(() => {
     Notifications.setBadgeCountAsync(0);

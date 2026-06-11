@@ -35,11 +35,32 @@ export async function registerForPushNotifications(): Promise<string | null> {
 
     // Create Android channels
     if (Platform.OS === "android") {
+      await Notifications.setNotificationChannelAsync("incoming-orders", {
+        name: "Incoming Orders",
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 500, 200, 500, 200, 500],
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        sound: "default",
+        bypassDnd: true,
+        enableVibrate: true,
+        lightColor: "#E23744",
+      });
       await Notifications.setNotificationChannelAsync("orders", {
         name: "Orders",
         importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 250, 250, 250],
+        vibrationPattern: [0, 400, 250, 400, 250, 400],
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        sound: "default",
+        bypassDnd: true,
         lightColor: "#E23744",
+      });
+      await Notifications.setNotificationChannelAsync("ongoing-orders", {
+        name: "Ongoing Order Activity",
+        importance: Notifications.AndroidImportance.MAX,
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        sound: "default",
+        bypassDnd: true,
+        vibrationPattern: [0, 250, 150, 250],
       });
       await Notifications.setNotificationChannelAsync("default", {
         name: "Default",

@@ -19,6 +19,9 @@ import { useStoreStore } from 'store/storeStore';
 import { useAuthStore } from 'store/authStore';
 import { Colors } from 'constants/theme';
 import { storeService } from 'services/storeService';
+import { transitionAcceptedOrder } from 'services/incomingOrderAlertService';
+import LiveOrderActivityBoard from 'components/LiveOrderActivityBoard';
+import { formatCountdown } from 'utils/orderActivity';
 import type { DashboardOrder } from 'types';
 import { pickImageUrl } from 'utils/image';
 
@@ -37,7 +40,7 @@ export default function DashboardScreen() {
 
   useEffect(() => {
     // Update clock less frequently to avoid dashboard jitter while swiping.
-    const timer = setInterval(() => setNow(Date.now()), 15000);
+    const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
 
@@ -171,59 +174,6 @@ export default function DashboardScreen() {
     return createdAt ? createdAt + 60 * 60 * 1000 : 0;
   };
 
-  const getActionableOrders = () =>
-    [
-      ...(dashboard?.today_orders || []),
-      ...(dashboard?.tomorrow_orders || []),
-    ].filter((order) => !isFinalStatus(order.status));
-
-  const pickNextOrder = () => {
-    const actionable = getActionableOrders();
-    if (!actionable.length) return null;
-
-    const instant = actionable
-      .filter((order) => isInstantOrder(order))
-      .sort((a, b) => {
-        const aDeadline = getInstantDeadline(a);
-        const bDeadline = getInstantDeadline(b);
-        if (aDeadline !== bDeadline) return aDeadline - bDeadline;
-        return new Date(a.createdAt || a.date || 0).getTime() - new Date(b.createdAt || b.date || 0).getTime();
-      })[0];
-
-    if (instant) return instant;
-
-    return actionable.sort((a, b) => {
-      const aDate = new Date(a.date || a.createdAt || 0).getTime();
-      const bDate = new Date(b.date || b.createdAt || 0).getTime();
-      return aDate - bDate;
-    })[0];
-  };
-
-  const isPreparingStatus = (status?: string) => {
-    const value = String(status || '').toLowerCase();
-    return ['preparing', 'assigned', 'accepted'].includes(value);
-  };
-
-  const isOutForDeliveryStatus = (status?: string) => {
-    const value = String(status || '').toLowerCase();
-    return ['out_for_delivery', 'picked_up'].includes(value);
-  };
-
-  const isDeliveredStatus = (status?: string) => {
-    const value = String(status || '').toLowerCase();
-    return ['delivered', 'completed'].includes(value);
-  };
-
-  const nextOrder = pickNextOrder();
-  const preparingCount = (dashboard?.today_orders || []).filter((order) => isPreparingStatus(order.status)).length;
-  const outForDeliveryCount = (dashboard?.today_orders || []).filter((order) => isOutForDeliveryStatus(order.status)).length;
-  const deliveredTodayCount = (dashboard?.today_orders || []).filter((order) => isDeliveredStatus(order.status)).length;
-  const pastDueInstantCount = (dashboard?.today_orders || []).filter((order) => {
-    if (!isInstantOrder(order)) return false;
-    const deadline = getInstantDeadline(order);
-    return deadline > 0 && deadline <= now && !isFinalStatus(order.status);
-  }).length;
-
   const resolveOrderApiIds = (order: DashboardOrder) => {
     const candidates = [
       (order as any)?.order_id,
@@ -324,6 +274,17 @@ export default function DashboardScreen() {
 
       if (localOrderKey) {
         setStatusOverrides((prev) => ({ ...prev, [localOrderKey]: status }));
+      }
+
+      if (['preparing', 'accepted', 'assigned'].includes(String(status).toLowerCase())) {
+        await transitionAcceptedOrder(
+          {
+            subscription: order,
+            subscription_id: orderIds[0],
+            status,
+          },
+          dashboard,
+        );
       }
 
       await fetchDashboard();
@@ -1010,86 +971,10 @@ export default function DashboardScreen() {
           </View>
         </View>
 
-        {/* Live Order Activity */}
-        <View className="bg-white rounded-3xl p-4 mb-4" style={{ borderWidth: 1, borderColor: '#DCE6FF' }}>
-          <View className="flex-row items-center justify-between mb-3">
-            <View className="flex-row items-center">
-              <View className="w-9 h-9 rounded-xl items-center justify-center" style={{ backgroundColor: '#E8EEFF' }}>
-                <Ionicons name="notifications" size={18} color="#1D4ED8" />
-              </View>
-              <View className="ml-2">
-                <Text className="text-sm font-semibold text-textSecondary">Live Activity</Text>
-                <Text className="text-base font-bold text-textPrimary">Next order status board</Text>
-              </View>
-            </View>
-            {pastDueInstantCount > 0 ? (
-              <View className="px-2.5 py-1 rounded-full" style={{ backgroundColor: '#FEE2E2' }}>
-                <Text className="text-[11px] font-bold" style={{ color: '#B91C1C' }}>
-                  {pastDueInstantCount} urgent
-                </Text>
-              </View>
-            ) : null}
-          </View>
-
-          {nextOrder ? (
-            <View className="rounded-2xl p-3 mb-3" style={{ backgroundColor: isInstantOrder(nextOrder) ? '#EFF6FF' : '#F8FAFC' }}>
-              <View className="flex-row items-center justify-between">
-                <Text className="text-sm font-bold text-textPrimary flex-1 pr-2" numberOfLines={1}>
-                  {getOrderTitle(nextOrder)}
-                </Text>
-                <View className="px-2 py-1 rounded-full" style={{ backgroundColor: '#E2E8F0' }}>
-                  <Text className="text-[10px] font-semibold text-slate-700 capitalize">
-                    {formatOrderStatus(nextOrder.status)}
-                  </Text>
-                </View>
-              </View>
-              <View className="flex-row flex-wrap mt-2">
-                <View className="px-2.5 py-1 rounded-full mr-2 mb-1" style={{ backgroundColor: '#DBEAFE' }}>
-                  <Text className="text-[11px] font-extrabold" style={{ color: '#1D4ED8' }}>
-                    SLOT: {formatSlotLabel(nextOrder)}
-                  </Text>
-                </View>
-                <View className="px-2.5 py-1 rounded-full mr-2 mb-1" style={{ backgroundColor: '#FEF3C7' }}>
-                  <Text className="text-[11px] font-extrabold" style={{ color: '#92400E' }}>
-                    STATUS: {formatOrderStatus(nextOrder.status)}
-                  </Text>
-                </View>
-                <View className="px-2.5 py-1 rounded-full mb-1" style={{ backgroundColor: '#EDE9FE' }}>
-                  <Text className="text-[11px] font-extrabold" style={{ color: '#5B21B6' }}>
-                    DATE: {formatOrderDate(nextOrder)}
-                  </Text>
-                </View>
-              </View>
-              <View className="flex-row items-center justify-end mt-1">
-                <View className="flex-row items-center">
-                  <Ionicons name="timer-outline" size={13} color={Colors.info} />
-                  <Text className="text-xs font-bold ml-1" style={{ color: Colors.info }}>
-                    {getInstantCountdown(nextOrder) || 'Scheduled'}
-                  </Text>
-                </View>
-              </View>
-            </View>
-          ) : (
-            <View className="rounded-2xl p-3 mb-3" style={{ backgroundColor: '#F8FAFC' }}>
-              <Text className="text-sm text-textSecondary">No active order right now. Waiting for next order.</Text>
-            </View>
-          )}
-
-          <View className="flex-row">
-            <View className="flex-1 rounded-2xl px-3 py-2 mr-1" style={{ backgroundColor: '#EFF6FF' }}>
-              <Text className="text-[11px] text-textSecondary">Preparing</Text>
-              <Text className="text-lg font-bold" style={{ color: '#1D4ED8' }}>{preparingCount}</Text>
-            </View>
-            <View className="flex-1 rounded-2xl px-3 py-2 mx-1" style={{ backgroundColor: '#ECFDF3' }}>
-              <Text className="text-[11px] text-textSecondary">Out for delivery</Text>
-              <Text className="text-lg font-bold" style={{ color: '#047857' }}>{outForDeliveryCount}</Text>
-            </View>
-            <View className="flex-1 rounded-2xl px-3 py-2 ml-1" style={{ backgroundColor: '#FFF7ED' }}>
-              <Text className="text-[11px] text-textSecondary">Delivered today</Text>
-              <Text className="text-lg font-bold" style={{ color: '#C2410C' }}>{deliveredTodayCount}</Text>
-            </View>
-          </View>
-        </View>
+        <LiveOrderActivityBoard
+          dashboard={dashboard}
+          onOrderPress={navigateToOrder}
+        />
 
         {/* Dashboard Swipe Deck */}
         <View className="bg-white rounded-3xl p-4 mb-4" style={{ borderWidth: 1, borderColor: '#E5E7EB' }}>
@@ -1177,11 +1062,19 @@ export default function DashboardScreen() {
                     <Text className="text-xs text-textSecondary mb-2" numberOfLines={2}>
                       {getOrderAddress(activeCard) || 'Address pending'}
                     </Text>
+                    {activeCard.delivery_mode === 'instant' ? (
+                      <View className="rounded-2xl px-3 py-3 mb-2" style={{ backgroundColor: '#1D4ED8' }}>
+                        <Text className="text-[10px] font-bold text-blue-100 text-center uppercase">
+                          Time left
+                        </Text>
+                        <Text className="text-2xl font-black text-white text-center mt-1">
+                          {formatCountdown(getInstantDeadline(activeCard), now, { withSeconds: true }) || '—'}
+                        </Text>
+                      </View>
+                    ) : null}
                     <View className="flex-row items-center justify-between">
                       <Text className="text-xs text-textTertiary" numberOfLines={1}>
-                        {activeCard.delivery_mode === 'instant'
-                          ? `Instant • ${getInstantCountdown(activeCard) || 'Priority'}`
-                          : 'Scheduled order'}
+                        {activeCard.delivery_mode === 'instant' ? 'Instant order' : 'Scheduled order'}
                       </Text>
                       <Text className="text-xs font-semibold" style={{ color: Colors.info }}>
                         Tap for details

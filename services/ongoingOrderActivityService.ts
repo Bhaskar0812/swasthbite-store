@@ -4,44 +4,56 @@ import * as LiveActivity from "expo-live-activity";
 import Constants from "expo-constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { DashboardData, DashboardOrder } from "types";
+import {
+  buildMultiOrderSummary,
+  formatCountdown,
+  formatDueTime,
+  formatStatusLabel,
+  getInstantDeadline,
+  getOrderId,
+  getOrderTitle,
+  isInstantOrder,
+  isPendingAcceptance,
+  pickFocusOrder,
+  sortActiveOrdersForBoard,
+  getActionableOrders,
+} from "utils/orderActivity";
 
 const ONGOING_CHANNEL_ID = "ongoing-orders";
 const ONGOING_NOTIFICATION_ID = "partner-next-order-activity";
 const IOS_ACTIVITY_ID_KEY = "@partner_next_order_live_activity_id";
-const IOS_ACTIVITY_ORDER_KEY = "@partner_next_order_live_activity_order_id";
 
-const SLOT_ORDER: Record<string, number> = {
-  morning: 1,
-  lunch: 2,
-  evening: 3,
-  dinner: 4,
+const ensureAndroidChannel = async () => {
+  if (Platform.OS !== "android") return;
+
+  await Notifications.setNotificationChannelAsync(ONGOING_CHANNEL_ID, {
+    name: "Ongoing Order Activity",
+    importance: Notifications.AndroidImportance.MAX,
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    sound: "default",
+    vibrationPattern: [0, 250, 150, 250],
+    bypassDnd: true,
+  });
 };
 
-const FINAL_STATUSES = new Set([
-  "delivered",
-  "completed",
-  "cancelled",
-  "skipped",
-]);
+const ensureNotificationPermission = async () => {
+  const existing = await Notifications.getPermissionsAsync();
+  if (
+    existing.granted ||
+    existing.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL
+  ) {
+    return true;
+  }
 
-const normalizeText = (value?: string) => {
-  const normalized = String(value || "").trim();
-  return normalized && normalized !== "-" ? normalized : "";
+  const requested = await Notifications.requestPermissionsAsync({
+    ios: { allowAlert: true, allowBadge: true, allowSound: true },
+  });
+
+  return (
+    requested.granted ||
+    requested.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL
+  );
 };
-
-const getOrderTitle = (order: DashboardOrder) =>
-  normalizeText(order.meal_name) ||
-  normalizeText(order.package_name) ||
-  "Order";
-
-const getOrderId = (order: DashboardOrder) =>
-  String(
-    (order as any)?.subscription_id ||
-      order._id ||
-      order.order_id ||
-      (order as any)?.id ||
-      "",
-  ).trim();
 
 const canUseIosLiveActivity = () => {
   if (Platform.OS !== "ios") return false;
@@ -57,274 +69,62 @@ const canUseIosLiveActivity = () => {
   );
 };
 
-const getSlotRank = (slot?: string) =>
-  SLOT_ORDER[String(slot || "").toLowerCase()] || 99;
-
-const isActionable = (order: DashboardOrder) => {
-  const status = String(order.status || "").toLowerCase();
-  return !FINAL_STATUSES.has(status);
-};
-
-const isInstantActionable = (order: DashboardOrder) =>
-  String(order.delivery_mode || "").toLowerCase() === "instant" &&
-  isActionable(order);
-
-const toDateTime = (order: DashboardOrder) => {
-  const createdAt = order.createdAt ? new Date(order.createdAt).getTime() : 0;
-  const dateOnly = order.date ? new Date(order.date).getTime() : 0;
-  return createdAt || dateOnly || 0;
-};
-
-const getInstantDeadline = (order: DashboardOrder) => {
-  if (!isInstantActionable(order)) return 0;
-  if (order.instant_deadline_at) {
-    const deadline = new Date(order.instant_deadline_at).getTime();
-    if (!Number.isNaN(deadline) && deadline > 0) return deadline;
-  }
-  const createdAt = order.createdAt ? new Date(order.createdAt).getTime() : 0;
-  return createdAt ? createdAt + 60 * 60 * 1000 : 0;
-};
-
-const formatInstantCountdown = (deadlineAt: number) => {
-  if (!deadlineAt) return "Instant";
-  const remainingMs = Math.max(0, deadlineAt - Date.now());
-  if (remainingMs <= 0) return "Instant order";
-
-  const totalSeconds = Math.floor(remainingMs / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-
-  if (hours > 0) return `${hours}h ${minutes}m left`;
-  return `${Math.max(1, minutes)}m left`;
-};
-
-const formatSlot = (slot?: string) => {
-  const normalized = String(slot || "").toLowerCase();
-  if (!normalized) return "Scheduled";
-  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
-};
-
-const formatDueTime = (order: DashboardOrder) => {
-  if (String(order.delivery_mode || "").toLowerCase() === "instant") return "Due now";
-  const dateTime = toDateTime(order);
-  if (!dateTime) return formatSlot(order.slot);
-  return new Date(dateTime).toLocaleTimeString("en-IN", {
-    hour: "numeric",
-    minute: "2-digit",
-  });
-};
-
-const getDashboardProgress = (dashboard: DashboardData | null | undefined) => {
-  const todayOrders = dashboard?.today_orders || [];
-
-  const isPreparingStatus = (status?: string) => {
-    const value = String(status || "").toLowerCase();
-    return ["preparing", "assigned", "accepted"].includes(value);
-  };
-
-  const isOutForDeliveryStatus = (status?: string) => {
-    const value = String(status || "").toLowerCase();
-    return ["out_for_delivery", "picked_up"].includes(value);
-  };
-
-  const isDeliveredStatus = (status?: string) => {
-    const value = String(status || "").toLowerCase();
-    return ["delivered", "completed"].includes(value);
-  };
-
-  const preparing = todayOrders.filter(
-    (order) => isPreparingStatus(order.status),
-  ).length;
-  const outForDelivery = todayOrders.filter(
-    (order) => isOutForDeliveryStatus(order.status),
-  ).length;
-  const delivered = todayOrders.filter((order) => isDeliveredStatus(order.status)).length;
-
-  return { preparing, outForDelivery, delivered };
-};
-
-const pickNextOrder = (
-  dashboard: DashboardData | null | undefined,
-): DashboardOrder | null => {
-  if (!dashboard) return null;
-
-  const allOrders = [
-    ...(dashboard.today_orders || []),
-    ...(dashboard.tomorrow_orders || []),
-  ].filter(isActionable);
-
-  if (!allOrders.length) return null;
-
-  const instant = allOrders.filter(isInstantActionable).sort((a, b) => {
-    const aDeadline = getInstantDeadline(a);
-    const bDeadline = getInstantDeadline(b);
-    if (aDeadline !== bDeadline) return aDeadline - bDeadline;
-    return toDateTime(a) - toDateTime(b);
-  })[0];
-
-  if (instant) return instant;
-
-  return allOrders.sort((a, b) => {
-    const aDate = a.date ? new Date(a.date).getTime() : 0;
-    const bDate = b.date ? new Date(b.date).getTime() : 0;
-    if (aDate !== bDate) return aDate - bDate;
-
-    const aSlot = getSlotRank(a.slot);
-    const bSlot = getSlotRank(b.slot);
-    if (aSlot !== bSlot) return aSlot - bSlot;
-
-    return toDateTime(a) - toDateTime(b);
-  })[0];
-};
-
-const ensureAndroidChannel = async () => {
-  if (Platform.OS !== "android") return;
-
-  await Notifications.setNotificationChannelAsync(ONGOING_CHANNEL_ID, {
-    name: "Ongoing Order Activity",
-    importance: Notifications.AndroidImportance.HIGH,
-    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-    sound: null,
-    vibrationPattern: [0],
-  });
-};
-
-const getOrderStatusLabel = (order: DashboardOrder) => {
-  const status = String(order.status || "").toLowerCase();
-  switch (status) {
-    case "scheduled":
-      return "Scheduled";
-    case "preparing":
-      return "Preparing";
-    case "out_for_delivery":
-      return "Out for Delivery";
-    case "pending":
-      return "Pending";
-    default:
-      return status ? status.replaceAll("_", " ") : "";
-  }
-};
-
 const buildAndroidBody = (
-  order: DashboardOrder,
   dashboard: DashboardData | null | undefined,
+  now = Date.now(),
 ) => {
-  const mode =
-    String(order.delivery_mode || "").toLowerCase() === "instant"
-      ? "Instant"
-      : String(order.slot || "Scheduled");
-  const customer = normalizeText(order.user_name);
-  const statusLabel = getOrderStatusLabel(order);
-  const orderId = getOrderId(order);
-  const due = formatDueTime(order);
-  const progress = getDashboardProgress(dashboard);
-  const progressLine = `Prep ${progress.preparing} | Out ${progress.outForDelivery} | Done ${progress.delivered}`;
-
-  if (mode === "Instant") {
-    const countdown = formatInstantCountdown(getInstantDeadline(order));
-    return [
-      mode,
-      statusLabel,
-      countdown,
-      due,
-      customer,
-      progressLine,
-      orderId ? `#${orderId.slice(-6).toUpperCase()}` : "",
-    ]
-      .filter(Boolean)
-      .join(" • ");
+  const summary = buildMultiOrderSummary(dashboard, now, 5);
+  if (!summary.lines.length) {
+    return "Waiting for next order";
   }
 
   return [
-    mode,
-    statusLabel,
-    `Due ${due}`,
-    customer,
-    progressLine,
-    orderId ? `#${orderId.slice(-6).toUpperCase()}` : "",
+    `Pending ${summary.stats.pending} • Prep ${summary.stats.preparing} • Out ${summary.stats.outForDelivery}`,
+    ...summary.lines,
+    summary.stats.active > 5 ? `+${summary.stats.active - 5} more in app` : "",
   ]
     .filter(Boolean)
-    .join(" • ");
-};
-
-const ensureNotificationPermission = async () => {
-  const existing = await Notifications.getPermissionsAsync();
-  if (existing.granted || existing.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL) {
-    return true;
-  }
-
-  const requested = await Notifications.requestPermissionsAsync({
-    ios: { allowAlert: true, allowBadge: true, allowSound: true },
-  });
-
-  return requested.granted || requested.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL;
+    .join("\n");
 };
 
 const toLiveActivityState = (
-  order: DashboardOrder,
   dashboard: DashboardData | null | undefined,
+  now = Date.now(),
 ): LiveActivity.LiveActivityState => {
-  const title = `Next: ${getOrderTitle(order)}`;
-  const statusLabel = getOrderStatusLabel(order);
-  const mode =
-    String(order.delivery_mode || "").toLowerCase() === "instant"
-      ? "Instant"
-      : formatSlot(order.slot);
-  const customer = normalizeText(order.user_name);
-  const due = formatDueTime(order);
-  const progress = getDashboardProgress(dashboard);
-  const subtitle = [
-    mode,
-    statusLabel,
-    `Due ${due}`,
-    customer,
-    `Prep ${progress.preparing}`,
-    `Out ${progress.outForDelivery}`,
-    `Done ${progress.delivered}`,
-  ]
-    .filter(Boolean)
-    .join(" • ");
+  const summary = buildMultiOrderSummary(dashboard, now, 3);
+  const focusOrder = summary.focusOrder;
 
-  const deadline = getInstantDeadline(order);
-  if (deadline > Date.now()) {
+  if (!focusOrder) {
     return {
-      title,
-      subtitle,
-      progressBar: {
-        date: deadline,
-      },
+      title: "No active orders",
+      subtitle: "Waiting for next order",
     };
   }
 
-  return {
-    title,
-    subtitle,
+  const state: LiveActivity.LiveActivityState = {
+    title: summary.title,
+    subtitle: summary.subtitle,
   };
+
+  if (isInstantOrder(focusOrder)) {
+    const deadline = getInstantDeadline(focusOrder);
+    if (deadline > now) {
+      state.progressBar = { date: deadline };
+    }
+  }
+
+  return state;
 };
 
 const syncIosLiveActivity = async (
-  order: DashboardOrder | null,
   dashboard: DashboardData | null | undefined,
 ) => {
   const existingActivityId = await AsyncStorage.getItem(IOS_ACTIVITY_ID_KEY);
-  const existingOrderId = await AsyncStorage.getItem(IOS_ACTIVITY_ORDER_KEY);
+  const orders = sortActiveOrdersForBoard(getActionableOrders(dashboard));
+  const state = toLiveActivityState(dashboard);
+  const focusOrder = pickFocusOrder(dashboard);
+  const orderId = focusOrder ? getOrderId(focusOrder) : "";
 
-  if (!order) {
-    if (existingActivityId) {
-      await LiveActivity.stopActivity(existingActivityId, {
-        title: "No active orders",
-        subtitle: "Waiting for next order",
-      });
-    }
-    await AsyncStorage.multiRemove([
-      IOS_ACTIVITY_ID_KEY,
-      IOS_ACTIVITY_ORDER_KEY,
-    ]);
-    return;
-  }
-
-  const orderId = getOrderId(order);
-  const state = toLiveActivityState(order, dashboard);
   const config: LiveActivity.LiveActivityConfig = {
     deepLinkUrl: orderId ? `/order/${orderId}` : "/(tabs)/orders",
     backgroundColor: "#0B57D0",
@@ -335,23 +135,71 @@ const syncIosLiveActivity = async (
     timerType: "digital",
   };
 
-  if (existingActivityId && existingOrderId === orderId) {
-    await LiveActivity.updateActivity(existingActivityId, state);
+  if (!orders.length) {
+    if (existingActivityId) {
+      await LiveActivity.stopActivity(existingActivityId, state);
+    }
+    await AsyncStorage.removeItem(IOS_ACTIVITY_ID_KEY);
     return;
   }
 
   if (existingActivityId) {
-    await LiveActivity.stopActivity(existingActivityId, state);
+    await LiveActivity.updateActivity(existingActivityId, state);
+    return;
   }
 
   const startedId = LiveActivity.startActivity(state, config);
   if (startedId) {
-    await AsyncStorage.multiSet([
-      [IOS_ACTIVITY_ID_KEY, startedId],
-      [IOS_ACTIVITY_ORDER_KEY, orderId],
-    ]);
+    await AsyncStorage.setItem(IOS_ACTIVITY_ID_KEY, startedId);
   }
 };
+
+type IncomingOrderSnapshot = {
+  orderId: string;
+  packageName: string;
+  customerName: string;
+  deliveryMode: string;
+  status: string;
+  instantDeadlineAt?: string;
+};
+
+const toDashboardOrder = (order: IncomingOrderSnapshot): DashboardOrder =>
+  ({
+    _id: order.orderId,
+    subscription_id: order.orderId,
+    package_name: order.packageName,
+    meal_name: order.packageName,
+    user_name: order.customerName,
+    delivery_mode: order.deliveryMode,
+    status: order.status,
+    instant_deadline_at: order.instantDeadlineAt,
+    createdAt: new Date().toISOString(),
+  }) as DashboardOrder;
+
+export async function syncOngoingNextOrderActivityFromOrder(
+  order: IncomingOrderSnapshot,
+  dashboard?: DashboardData | null,
+) {
+  const snapshotOrder = toDashboardOrder(order);
+  const mergedDashboard: DashboardData = {
+    ...(dashboard || ({} as DashboardData)),
+    today_orders: [
+      snapshotOrder,
+      ...((dashboard?.today_orders || []).filter(
+        (item) => getOrderId(item) !== order.orderId,
+      ) || []),
+    ],
+  };
+
+  await syncOngoingNextOrderActivity(mergedDashboard);
+}
+
+export async function tickOngoingOrderActivity(
+  dashboard: DashboardData | null | undefined,
+) {
+  if (!dashboard) return;
+  await syncOngoingNextOrderActivity(dashboard);
+}
 
 export async function syncOngoingNextOrderActivity(
   dashboard: DashboardData | null | undefined,
@@ -360,17 +208,18 @@ export async function syncOngoingNextOrderActivity(
     const hasNotificationPermission = await ensureNotificationPermission();
     if (!hasNotificationPermission) return;
 
-    const order = pickNextOrder(dashboard);
+    const summary = buildMultiOrderSummary(dashboard);
+    const focusOrder = summary.focusOrder;
 
     if (Platform.OS === "ios") {
       if (!canUseIosLiveActivity()) return;
-      await syncIosLiveActivity(order, dashboard);
+      await syncIosLiveActivity(dashboard);
       return;
     }
 
     if (Platform.OS !== "android") return;
 
-    if (!order) {
+    if (!focusOrder) {
       await Notifications.dismissNotificationAsync(
         ONGOING_NOTIFICATION_ID,
       ).catch(() => null);
@@ -379,16 +228,37 @@ export async function syncOngoingNextOrderActivity(
 
     await ensureAndroidChannel();
 
+    const pendingAcceptance = isPendingAcceptance(focusOrder);
+    const instant = isInstantOrder(focusOrder);
+    const countdown = instant
+      ? formatCountdown(getInstantDeadline(focusOrder))
+      : "";
+
+    const title =
+      summary.stats.active > 1
+        ? `${summary.stats.active} Active Orders`
+        : pendingAcceptance
+          ? `Action: ${getOrderTitle(focusOrder)}`
+          : `${formatStatusLabel(focusOrder.status)}: ${getOrderTitle(focusOrder)}`;
+
+    const lead =
+      instant && countdown
+        ? `⚡ ${countdown}`
+        : pendingAcceptance
+          ? "Accept now"
+          : `Due ${formatDueTime(focusOrder)}`;
+
     await Notifications.scheduleNotificationAsync({
       identifier: ONGOING_NOTIFICATION_ID,
       content: {
-        title: `Next order: ${getOrderTitle(order)}`,
-        body: buildAndroidBody(order, dashboard),
+        title,
+        body: [lead, buildAndroidBody(dashboard)].filter(Boolean).join("\n"),
         channelId: ONGOING_CHANNEL_ID,
         data: {
           type: "ongoing_next_order",
-          orderId: getOrderId(order),
-          deliveryMode: order.delivery_mode || "scheduled",
+          orderId: getOrderId(focusOrder),
+          activeCount: summary.stats.active,
+          deliveryMode: focusOrder.delivery_mode || "scheduled",
         },
         sound: false,
         priority: Notifications.AndroidNotificationPriority.MAX,
@@ -405,10 +275,7 @@ export async function syncOngoingNextOrderActivity(
 export async function clearOngoingNextOrderActivity() {
   if (Platform.OS === "ios") {
     if (!canUseIosLiveActivity()) {
-      await AsyncStorage.multiRemove([
-        IOS_ACTIVITY_ID_KEY,
-        IOS_ACTIVITY_ORDER_KEY,
-      ]);
+      await AsyncStorage.removeItem(IOS_ACTIVITY_ID_KEY);
       return;
     }
 
@@ -419,10 +286,7 @@ export async function clearOngoingNextOrderActivity() {
         subtitle: "Partner activity ended",
       });
     }
-    await AsyncStorage.multiRemove([
-      IOS_ACTIVITY_ID_KEY,
-      IOS_ACTIVITY_ORDER_KEY,
-    ]);
+    await AsyncStorage.removeItem(IOS_ACTIVITY_ID_KEY);
     return;
   }
 
