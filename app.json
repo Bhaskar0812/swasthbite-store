@@ -10,7 +10,7 @@
     "splash": {
       "image": "./assets/icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#3B82F6"
+      "backgroundColor": "#1D4ED8"
     },
     "assetBundlePatterns": ["**/*"],
     "ios": {
@@ -32,7 +32,7 @@
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
-        "backgroundColor": "#3B82F6"
+        "backgroundColor": "#1D4ED8"
       },
       "permissions": ["POST_NOTIFICATIONS"]
     },
@@ -57,7 +57,7 @@
           "image": "./assets/icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#3B82F6"
+          "backgroundColor": "#1D4ED8"
         }
       ],
       "expo-image",

@@ -1,6 +1,16 @@
-import { useEffect, useRef } from 'react';
-import { View, Animated, Easing, Dimensions, StyleSheet } from 'react-native';
+import { useEffect } from 'react';
+import { View, StyleSheet, Dimensions } from 'react-native';
 import { Image } from 'expo-image';
+import Animated, {
+  Easing,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 
 const { width, height } = Dimensions.get('window');
 
@@ -8,370 +18,326 @@ type Props = {
   onFinish: () => void;
 };
 
-function useAnim(init = 0) {
-  return useRef(new Animated.Value(init)).current;
-}
+const PARTICLES = Array.from({ length: 14 }, (_, index) => ({
+  id: index,
+  left: 8 + (index * 6.5) % 84,
+  top: 12 + ((index * 17) % 70),
+  size: 4 + (index % 3) * 2,
+  delay: index * 120,
+}));
 
 export default function AnimatedSplash({ onFinish }: Props) {
-  const shopBase = useAnim();
-  const shopWalls = useAnim();
-  const awning = useAnim();
-  const door = useAnim();
-  const shelf1 = useAnim();
-  const shelf2 = useAnim();
-  const shelf3 = useAnim();
-  const signBoard = useAnim();
-  const logoScale = useAnim();
-  const logoRotate = useAnim();
-  const sparkle = useAnim();
-  const whiteOut = useAnim();
-  const textOpacity = useAnim();
-  const appNameOpacity = useAnim();
+  const progress = useSharedValue(0);
+  const pulse = useSharedValue(0);
+  const ring = useSharedValue(0);
+  const shimmer = useSharedValue(0);
+  const fadeOut = useSharedValue(0);
 
   useEffect(() => {
-    const ease = Easing.out(Easing.cubic);
-    const seq = Animated.sequence;
-    const delay = Animated.delay;
-    const timing = (val: Animated.Value, toValue: number, duration: number, easing = ease) =>
-      Animated.timing(val, { toValue, duration, easing, useNativeDriver: true });
-    const spring = (val: Animated.Value, toValue: number, friction = 5, tension = 200) =>
-      Animated.spring(val, { toValue, friction, tension, useNativeDriver: true });
+    progress.value = withTiming(1, {
+      duration: 900,
+      easing: Easing.out(Easing.cubic),
+    });
 
-    Animated.parallel([
-      // Base
-      timing(shopBase, 1, 400),
-      // Walls
-      seq([delay(300), timing(shopWalls, 1, 500)]),
-      // Awning
-      seq([delay(700), timing(awning, 1, 400)]),
-      // Door
-      seq([delay(1000), timing(door, 1, 350)]),
-      // Shelves
-      seq([delay(1200), timing(shelf1, 1, 250)]),
-      seq([delay(1350), timing(shelf2, 1, 250)]),
-      seq([delay(1500), timing(shelf3, 1, 250)]),
-      // Sign board
-      seq([delay(1700), timing(signBoard, 1, 350)]),
-      // Logo slam with bounce
-      seq([
-        delay(2100),
-        spring(logoScale, 1.3, 3, 300),
-        spring(logoScale, 1, 6, 200),
-      ]),
-      seq([
-        delay(2100),
-        timing(logoRotate, 10, 100, Easing.linear),
-        spring(logoRotate, 0, 5, 200),
-      ]),
-      // Sparkles
-      seq([delay(2500), timing(sparkle, 1, 500, Easing.linear)]),
-      // App name
-      seq([delay(2600), timing(appNameOpacity, 1, 300, Easing.linear)]),
-      // Text
-      seq([
-        delay(500),
-        timing(textOpacity, 1, 300, Easing.linear),
-        delay(2200),
-        timing(textOpacity, 0, 300, Easing.linear),
-      ]),
-      // White out
-      seq([delay(3200), timing(whiteOut, 1, 400, Easing.in(Easing.cubic))]),
-    ]).start();
+    pulse.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 900, easing: Easing.inOut(Easing.quad) }),
+        withTiming(0, { duration: 900, easing: Easing.inOut(Easing.quad) }),
+      ),
+      -1,
+      false,
+    );
+
+    ring.value = withRepeat(
+      withTiming(1, { duration: 2200, easing: Easing.out(Easing.quad) }),
+      -1,
+      false,
+    );
+
+    shimmer.value = withRepeat(
+      withTiming(1, { duration: 1800, easing: Easing.inOut(Easing.quad) }),
+      -1,
+      true,
+    );
+
+    fadeOut.value = withDelay(
+      3200,
+      withTiming(1, { duration: 450, easing: Easing.in(Easing.cubic) }),
+    );
 
     const timer = setTimeout(onFinish, 3700);
     return () => clearTimeout(timer);
-  }, []);
+  }, [fadeOut, onFinish, progress, pulse, ring, shimmer]);
 
-  // Interpolations
-  const awningTranslateY = awning.interpolate({ inputRange: [0, 1], outputRange: [-40, 0] });
-  const shelf1TranslateX = shelf1.interpolate({ inputRange: [0, 1], outputRange: [-50, 0] });
-  const shelf2TranslateX = shelf2.interpolate({ inputRange: [0, 1], outputRange: [50, 0] });
-  const shelf3TranslateX = shelf3.interpolate({ inputRange: [0, 1], outputRange: [-50, 0] });
-  const signTranslateY = signBoard.interpolate({ inputRange: [0, 1], outputRange: [-60, 0] });
-  const rotateDeg = logoRotate.interpolate({ inputRange: [-360, 360], outputRange: ['-360deg', '360deg'] });
-  const sparkleOpacity = sparkle.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, 1, 0] });
+  const heroStyle = useAnimatedStyle(() => ({
+    opacity: progress.value,
+    transform: [
+      { translateY: interpolate(progress.value, [0, 1], [28, 0]) },
+      { scale: interpolate(progress.value, [0, 1], [0.92, 1]) },
+    ],
+  }));
+
+  const logoStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: 1 + pulse.value * 0.06 }],
+  }));
+
+  const ringStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(ring.value, [0, 0.2, 1], [0.55, 0.35, 0]),
+    transform: [{ scale: interpolate(ring.value, [0, 1], [0.85, 1.45]) }],
+  }));
+
+  const shimmerStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(shimmer.value, [0, 1], [0.15, 0.45]),
+    transform: [{ translateX: interpolate(shimmer.value, [0, 1], [-80, 80]) }],
+  }));
+
+  const textStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(progress.value, [0.4, 1], [0, 1]),
+    transform: [{ translateY: interpolate(progress.value, [0.4, 1], [16, 0]) }],
+  }));
+
+  const badgeStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(progress.value, [0.55, 1], [0, 1]),
+    transform: [{ translateY: interpolate(progress.value, [0.55, 1], [12, 0]) }],
+  }));
+
+  const overlayStyle = useAnimatedStyle(() => ({
+    opacity: fadeOut.value,
+  }));
 
   return (
     <View style={styles.container}>
-      <View style={styles.bgTop} />
-      <View style={styles.bgBottom} />
+      <View style={styles.gradientTop} />
+      <View style={styles.gradientMid} />
+      <View style={styles.gradientBottom} />
+      <View style={styles.glowOrb} />
 
-      <Animated.Text style={[styles.setupText, { opacity: textOpacity }]}>
-        Setting up your store...
-      </Animated.Text>
+      {PARTICLES.map((particle) => (
+        <FloatingParticle key={particle.id} {...particle} />
+      ))}
 
-      <View style={styles.shopScene}>
-        {/* Floor */}
-        <Animated.View style={[styles.floor, { opacity: shopBase, transform: [{ scaleX: shopBase }] }]} />
-
-        {/* Walls */}
-        <Animated.View style={[styles.wallLeft, { opacity: shopWalls, transform: [{ scaleY: shopWalls }] }]} />
-        <Animated.View style={[styles.wallRight, { opacity: shopWalls, transform: [{ scaleY: shopWalls }] }]} />
-        <Animated.View style={[styles.backWall, { opacity: shopWalls, transform: [{ scaleY: shopWalls }] }]} />
-
-        {/* Awning */}
-        <Animated.View style={[styles.awning, { opacity: awning, transform: [{ translateY: awningTranslateY }, { scaleY: awning }] }]}>
-          {[0, 1, 2, 3, 4, 5, 6].map((i) => (
-            <View key={i} style={[styles.awningStripe, { backgroundColor: i % 2 === 0 ? '#E23744' : '#FFFFFF' }]} />
-          ))}
+      <Animated.View style={[styles.hero, heroStyle]}>
+        <Animated.View style={[styles.ring, ringStyle]} />
+        <Animated.View style={[styles.logoWrap, logoStyle]}>
+          <View style={styles.logoShadow} />
+          <Image
+            source={require('assets/icon.png')}
+            style={styles.logo}
+            contentFit="contain"
+          />
+          <Animated.View style={[styles.shimmer, shimmerStyle]} />
         </Animated.View>
 
-        {/* Door */}
-        <Animated.View style={[styles.door, { opacity: door, transform: [{ scaleX: door }] }]}>
-          <View style={styles.doorHandle} />
+        <Animated.View style={[styles.badge, badgeStyle]}>
+          <View style={styles.badgeDot} />
+          <Animated.Text style={styles.badgeText}>PARTNER</Animated.Text>
         </Animated.View>
 
-        {/* Shelves */}
-        <Animated.View style={[styles.shelf, styles.shelf1Pos, { opacity: shelf1, transform: [{ translateX: shelf1TranslateX }] }]}>
-          <View style={[styles.shelfItem, { backgroundColor: '#4CAF50', height: 10 }]} />
-          <View style={[styles.shelfItem, { backgroundColor: '#FF9800', height: 13 }]} />
-          <View style={[styles.shelfItem, { backgroundColor: '#2196F3', height: 9 }]} />
-          <View style={styles.shelfBoard} />
-        </Animated.View>
+        <Animated.Text style={[styles.title, textStyle]}>
+          Swasth Bite Partner
+        </Animated.Text>
+        <Animated.Text style={[styles.subtitle, textStyle]}>
+          Live orders. Quick actions. Always on.
+        </Animated.Text>
+      </Animated.View>
 
-        <Animated.View style={[styles.shelf, styles.shelf2Pos, { opacity: shelf2, transform: [{ translateX: shelf2TranslateX }] }]}>
-          <View style={[styles.shelfItem, { backgroundColor: '#9C27B0', height: 11 }]} />
-          <View style={[styles.shelfItem, { backgroundColor: '#F44336', height: 9 }]} />
-          <View style={[styles.shelfItem, { backgroundColor: '#FFEB3B', height: 12 }]} />
-          <View style={styles.shelfBoard} />
-        </Animated.View>
-
-        <Animated.View style={[styles.shelf, styles.shelf3Pos, { opacity: shelf3, transform: [{ translateX: shelf3TranslateX }] }]}>
-          <View style={[styles.shelfItem, { backgroundColor: '#00BCD4', height: 10 }]} />
-          <View style={[styles.shelfItem, { backgroundColor: '#8BC34A', height: 8 }]} />
-          <View style={[styles.shelfItem, { backgroundColor: '#FF5722', height: 13 }]} />
-          <View style={styles.shelfBoard} />
-        </Animated.View>
-
-        {/* Sign Board */}
-        <Animated.View style={[styles.signBoard, { opacity: signBoard, transform: [{ translateY: signTranslateY }, { scale: signBoard }] }]}>
-          <Animated.View style={[styles.logoOnSign, { transform: [{ scale: logoScale }, { rotate: rotateDeg }] }]}>
-            <Image source={require('assets/icon.png')} style={styles.logoImage} contentFit="contain" />
-          </Animated.View>
-        </Animated.View>
-
-        {/* Sparkles */}
-        <Animated.View style={[styles.sparkleContainer, { opacity: sparkleOpacity, transform: [{ scale: sparkle }] }]}>
-          <View style={[styles.spark, { top: -20, left: -30 }]} />
-          <View style={[styles.spark, { top: -25, right: -25 }]} />
-          <View style={[styles.spark, { top: 5, left: -45 }]} />
-          <View style={[styles.spark, { top: 10, right: -40 }]} />
-          <View style={[styles.spark, { top: -35, left: 10 }]} />
-          <View style={[styles.spark, { top: -10, right: 5 }]} />
-        </Animated.View>
-      </View>
-
-      <Animated.Text style={[styles.appName, { opacity: appNameOpacity }]}>
-        Swasth Bite Partner
-      </Animated.Text>
-
-      <Animated.View style={[styles.whiteOverlay, { opacity: whiteOut }]} />
+      <Animated.View style={[styles.fadeOverlay, overlayStyle]} />
     </View>
   );
 }
 
-const SHOP_WIDTH = width * 0.5;
-const SHOP_HEIGHT = 140;
+function FloatingParticle({
+  id,
+  left,
+  top,
+  size,
+  delay,
+}: {
+  id: number;
+  left: number;
+  top: number;
+  size: number;
+  delay: number;
+}) {
+  const float = useSharedValue(0);
+
+  useEffect(() => {
+    float.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(
+          withTiming(1, { duration: 1800 + (id % 4) * 200 }),
+          withTiming(0, { duration: 1800 + (id % 4) * 200 }),
+        ),
+        -1,
+        false,
+      ),
+    );
+  }, [delay, float, id]);
+
+  const style = useAnimatedStyle(() => ({
+    opacity: interpolate(float.value, [0, 1], [0.15, 0.7]),
+    transform: [
+      { translateY: interpolate(float.value, [0, 1], [0, -18]) },
+      { scale: interpolate(float.value, [0, 1], [0.8, 1.15]) },
+    ],
+  }));
+
+  return (
+    <Animated.View
+      style={[
+        styles.particle,
+        style,
+        {
+          left: `${left}%`,
+          top: `${top}%`,
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+        },
+      ]}
+    />
+  );
+}
 
 const styles = StyleSheet.create({
   container: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F0F7FF',
+    backgroundColor: '#0B1220',
     zIndex: 100,
+    overflow: 'hidden',
   },
-  bgTop: {
+  gradientTop: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    height: height * 0.45,
-    backgroundColor: '#3B82F6',
-    borderBottomLeftRadius: 40,
-    borderBottomRightRadius: 40,
+    height: height * 0.55,
+    backgroundColor: '#1D4ED8',
+    borderBottomLeftRadius: 120,
+    borderBottomRightRadius: 120,
   },
-  bgBottom: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: height * 0.1,
-    backgroundColor: '#E8D5B7',
-  },
-  setupText: {
+  gradientMid: {
     position: 'absolute',
     top: height * 0.18,
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    letterSpacing: 0.5,
+    left: -width * 0.2,
+    width: width * 1.4,
+    height: height * 0.45,
+    backgroundColor: '#2563EB',
+    opacity: 0.55,
+    borderRadius: 999,
+    transform: [{ rotate: '-8deg' }],
   },
-  shopScene: {
-    width: SHOP_WIDTH,
-    height: SHOP_HEIGHT + 55,
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    marginTop: 10,
-  },
-  floor: {
+  gradientBottom: {
     position: 'absolute',
     bottom: 0,
-    width: SHOP_WIDTH + 14,
-    height: 8,
-    backgroundColor: '#8B7355',
-    borderRadius: 3,
-  },
-  wallLeft: {
-    position: 'absolute',
-    bottom: 8,
     left: 0,
-    width: 7,
-    height: SHOP_HEIGHT - 14,
-    backgroundColor: '#D4A574',
-    transformOrigin: 'bottom',
-    borderTopLeftRadius: 3,
-  },
-  wallRight: {
-    position: 'absolute',
-    bottom: 8,
     right: 0,
-    width: 7,
-    height: SHOP_HEIGHT - 14,
-    backgroundColor: '#D4A574',
-    transformOrigin: 'bottom',
-    borderTopRightRadius: 3,
+    height: height * 0.35,
+    backgroundColor: '#0F172A',
   },
-  backWall: {
+  glowOrb: {
     position: 'absolute',
-    bottom: 8,
-    left: 7,
-    right: 7,
-    height: SHOP_HEIGHT - 14,
-    backgroundColor: '#FFF8EF',
-    transformOrigin: 'bottom',
+    width: width * 0.75,
+    height: width * 0.75,
+    borderRadius: width * 0.375,
+    backgroundColor: '#60A5FA',
+    opacity: 0.12,
+    top: height * 0.22,
   },
-  awning: {
+  hero: {
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  ring: {
     position: 'absolute',
-    top: 8,
-    left: -6,
-    right: -6,
-    height: 20,
-    flexDirection: 'row',
-    borderRadius: 4,
+    top: -18,
+    width: 168,
+    height: 168,
+    borderRadius: 84,
+    borderWidth: 2,
+    borderColor: '#BFDBFE',
+  },
+  logoWrap: {
+    width: 128,
+    height: 128,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 4,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 3,
+    borderColor: '#FDE68A',
   },
-  awningStripe: {
-    flex: 1,
-    height: '100%',
-  },
-  door: {
-    position: 'absolute',
-    bottom: 8,
-    width: 34,
-    height: 56,
-    backgroundColor: '#8B4513',
-    borderTopLeftRadius: 17,
-    borderTopRightRadius: 17,
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-    paddingRight: 8,
-  },
-  doorHandle: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#FFD700',
-  },
-  shelf: {
-    position: 'absolute',
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-  },
-  shelf1Pos: {
-    bottom: 92,
-    left: 14,
-  },
-  shelf2Pos: {
-    bottom: 70,
-    right: 14,
-  },
-  shelf3Pos: {
-    bottom: 48,
-    left: 14,
-  },
-  shelfBoard: {
-    position: 'absolute',
-    bottom: 0,
-    left: -4,
-    right: -4,
-    height: 3,
-    backgroundColor: '#A0522D',
-    borderRadius: 1,
-  },
-  shelfItem: {
-    width: 7,
-    marginHorizontal: 1.5,
-    borderRadius: 1.5,
-  },
-  signBoard: {
-    position: 'absolute',
-    top: -22,
-    width: SHOP_WIDTH * 0.55,
-    height: 50,
-    backgroundColor: '#1E40AF',
-    borderRadius: 10,
-    borderWidth: 2.5,
-    borderColor: '#FFD700',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  logoOnSign: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoImage: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-  },
-  sparkleContainer: {
-    position: 'absolute',
-    top: -22,
-    width: SHOP_WIDTH * 0.55,
-    height: 50,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  spark: {
-    position: 'absolute',
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#FFD700',
-  },
-  appName: {
-    marginTop: 20,
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#1E40AF',
-    letterSpacing: 0.8,
-  },
-  whiteOverlay: {
+  logoShadow: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#F0F7FF',
+    backgroundColor: '#000000',
+    opacity: 0.08,
+    borderRadius: 32,
+  },
+  logo: {
+    width: 96,
+    height: 96,
+    borderRadius: 22,
+  },
+  shimmer: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 36,
+    backgroundColor: '#FFFFFF',
+    transform: [{ skewX: '-18deg' }],
+  },
+  badge: {
+    marginTop: 22,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+  },
+  badgeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#34D399',
+    marginRight: 8,
+  },
+  badgeText: {
+    color: '#E2E8F0',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 2,
+  },
+  title: {
+    marginTop: 18,
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.4,
+    textAlign: 'center',
+  },
+  subtitle: {
+    marginTop: 10,
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '500',
+    color: '#CBD5E1',
+    textAlign: 'center',
+    maxWidth: 280,
+  },
+  particle: {
+    position: 'absolute',
+    backgroundColor: '#FDE68A',
+  },
+  fadeOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#F8FAFC',
     zIndex: 10,
   },
 });

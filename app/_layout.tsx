@@ -10,6 +10,10 @@ import { useNotificationStore } from 'store/notificationStore';
 import { useStoreStore } from 'store/storeStore';
 import { clearOngoingNextOrderActivity, tickOngoingOrderActivity } from 'services/ongoingOrderActivityService';
 import {
+  ensurePartnerNotificationSetup,
+  handlePartnerNotificationResponse,
+} from 'services/partnerNotificationActions';
+import {
   alertIncomingOrder,
   clearIncomingOrderAlert,
   handleIncomingOrderStatusChange,
@@ -53,6 +57,7 @@ export default function RootLayout() {
   const [showSplash, setShowSplash] = useState(true);
   const [appReady, setAppReady] = useState(false);
   const dashboard = useStoreStore((s) => s.dashboard);
+  const isOnline = useStoreStore((s) => s.isOnline);
   const appStateRef = useRef(AppState.currentState);
 
   const queueDashboardRefresh = () => {
@@ -96,6 +101,7 @@ export default function RootLayout() {
     if (token && user?._id) {
       registerForPushNotifications().catch(() => null);
       prepareIncomingOrderNotifications().catch(() => null);
+      ensurePartnerNotificationSetup().catch(() => null);
       connectSocket(token, user._id);
       fetchDashboard().catch(() => null);
       fetchUnreadCount();
@@ -127,8 +133,36 @@ export default function RootLayout() {
       }
     });
 
-    const responseSub = Notifications.addNotificationResponseReceivedListener((response) => {
+    const responseSub = Notifications.addNotificationResponseReceivedListener(async (response) => {
       const data = response?.notification?.request?.content?.data as Record<string, any> | undefined;
+      const type = String(data?.type || '').toLowerCase();
+
+      const handled = await handlePartnerNotificationResponse(response, {
+        dashboard,
+        onRefresh: async () => {
+          await fetchDashboard();
+        },
+        navigateToOrder: (orderId, altIds) => {
+          const candidates = [orderId, ...(altIds || [])]
+            .map((value) => String(value || '').trim())
+            .filter(Boolean);
+          const uniqueCandidates = Array.from(new Set(candidates));
+          router.push({
+            pathname: '/order/[id]' as any,
+            params: {
+              id: uniqueCandidates[0] || orderId,
+              alts: uniqueCandidates.join(','),
+              openAt: String(Date.now()),
+            },
+          });
+        },
+        navigateToOrdersTab: () => {
+          router.push('/(tabs)/orders' as any);
+        },
+      });
+
+      if (handled) return;
+
       const candidates = [
         data?._id,
         data?.subscription_id,
@@ -140,7 +174,7 @@ export default function RootLayout() {
         .filter(Boolean);
       const uniqueCandidates = Array.from(new Set(candidates));
       const orderId = uniqueCandidates[0] || '';
-      if (!orderId) return;
+      if (!orderId || type === 'ongoing_next_order') return;
 
       router.push({
         pathname: '/order/[id]' as any,
@@ -282,11 +316,11 @@ export default function RootLayout() {
     if (!token || !dashboard) return;
 
     const timerId = setInterval(() => {
-      tickOngoingOrderActivity(dashboard).catch(() => null);
+      tickOngoingOrderActivity(dashboard, { isOnline }).catch(() => null);
     }, 1000);
 
     return () => clearInterval(timerId);
-  }, [token, dashboard]);
+  }, [token, dashboard, isOnline]);
 
   return (
     <>

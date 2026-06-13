@@ -21,6 +21,7 @@ import {
   isInstantOrder,
   isPendingAcceptance,
   isPreparingStatus,
+  isOutForDeliveryStatus,
 } from "utils/orderActivity";
 
 type QuickAction = { label: string; value: string };
@@ -61,7 +62,7 @@ const QueueChip = ({
   isNext: boolean;
   onPress: () => void;
 }) => {
-  const pending = isPendingAcceptance(order.status);
+  const pending = isPendingAcceptance(order);
   const slot = isInstantOrder(order) ? "Instant" : formatSlotLabel(order.slot);
 
   return (
@@ -177,7 +178,7 @@ export default function PartnerOrderQueue({
 
     const headKey = getOrderCardKey(queue[0]);
     const headNeedsAttention =
-      isPendingAcceptance(queue[0].status) ||
+      isPendingAcceptance(queue[0]) ||
       (isInstantOrder(queue[0]) &&
         !["delivered", "completed", "cancelled"].includes(
           String(queue[0].status || "").toLowerCase(),
@@ -345,6 +346,13 @@ export default function PartnerOrderQueue({
                   {formatCountdown(getInstantDeadline(currentOrder), now, {
                     withSeconds: true,
                   }) || "—"}
+                </Text>
+              </View>
+            ) : isOutForDeliveryStatus(currentStatus) ? (
+              <View className="mt-3 rounded-2xl px-4 py-3" style={{ backgroundColor: '#EFF6FF' }}>
+                <Text className="text-xs font-semibold text-blue-700">With delivery partner</Text>
+                <Text className="text-base font-bold text-blue-900 mt-0.5">
+                  Partner will mark delivered
                 </Text>
               </View>
             ) : isPreparingStatus(currentStatus) ? (

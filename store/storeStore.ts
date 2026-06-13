@@ -48,7 +48,10 @@ export const useStoreStore = create<StoreState>((set, get) => ({
         loading: false,
       });
       await syncPendingIncomingOrdersFromDashboard(dashboardData);
-      await syncOngoingNextOrderActivity(dashboardData, { playSound: false });
+      await syncOngoingNextOrderActivity(dashboardData, {
+        playSound: false,
+        isOnline: dashboardData?.is_online ?? false,
+      });
     } catch {
       set({ loading: false });
     }
@@ -72,7 +75,13 @@ export const useStoreStore = create<StoreState>((set, get) => ({
     try {
       const res = await storeService.toggleOnline();
       const onlinePayload = unwrapData<{ is_online?: boolean } | null>(res);
-      set({ isOnline: onlinePayload?.is_online ?? !get().isOnline });
+      const nextOnline = onlinePayload?.is_online ?? !get().isOnline;
+      set({ isOnline: nextOnline });
+      await syncOngoingNextOrderActivity(get().dashboard, {
+        playSound: false,
+        isOnline: nextOnline,
+        forceUpdate: true,
+      });
     } catch {}
   },
 

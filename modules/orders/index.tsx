@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,16 +10,18 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Colors } from 'constants/theme';
 import { useStoreStore } from 'store/storeStore';
 import type { DashboardOrder } from 'types';
 import { pickImageUrl, resolveImageUrl } from 'utils/image';
-import LiveOrderActivityBoard from 'components/LiveOrderActivityBoard';
+import PartnerOrderQueue from 'components/PartnerOrderQueue';
 import DeliveryScheduleBanner from 'components/DeliveryScheduleBanner';
 import {
   formatCountdown,
+  formatStatusLabel,
   getInstantDeadline,
+  getTodayDateKey,
   isHiddenStoreDelivery,
   sortStoreOrdersByDateAndSlot,
 } from 'utils/orderActivity';
@@ -48,6 +50,12 @@ export default function OrdersScreen() {
     fetchDashboard();
     fetchPackages();
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchDashboard();
+    }, [fetchDashboard]),
+  );
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -157,10 +165,7 @@ export default function OrdersScreen() {
   const sortOrders = (list: DashboardOrder[], dateDirection: 'asc' | 'desc' = 'asc') =>
     sortStoreOrdersByDateAndSlot(list, { dateDirection, instantFirst: true });
 
-  const todayDateLabel = useMemo(() => {
-    const d = new Date(now);
-    return d.toISOString().split('T')[0];
-  }, [now]);
+  const todayDateLabel = useMemo(() => getTodayDateKey(now), [now]);
 
   const todayAllOrders = (dashboard?.today_orders || []).filter(
     (item) => !isHiddenStoreDelivery(item.status),
@@ -483,8 +488,8 @@ export default function OrdersScreen() {
             </View>
 
             <View className="px-2.5 py-1 rounded-full" style={{ backgroundColor: getStatusColor(item.status) + '15' }}>
-              <Text className="text-xs font-semibold capitalize" style={{ color: getStatusColor(item.status) }}>
-                {item.status}
+              <Text className="text-xs font-semibold" style={{ color: getStatusColor(item.status) }}>
+                {formatStatusLabel(item.status)}
               </Text>
             </View>
           </View>
@@ -572,9 +577,13 @@ export default function OrdersScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View className="mx-4 mt-1">
-          <LiveOrderActivityBoard
+          <PartnerOrderQueue
             dashboard={dashboard}
+            now={now}
             onOrderPress={navigateToOrder}
+            getOrderTitle={getOrderTitle}
+            getOrderImage={getOrderImage}
+            getOrderAddress={getOrderAddress}
           />
         </View>
 

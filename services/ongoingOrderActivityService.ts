@@ -6,18 +6,28 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { DashboardData, DashboardOrder } from "types";
 import {
   buildMultiOrderSummary,
+  buildPartnerOrderQueue,
   formatCountdown,
+  formatDeliveryDateLabel,
   formatDueTime,
+  formatSlotLabel,
   formatStatusLabel,
   getInstantDeadline,
+  getOrderCustomerName,
   getOrderId,
   getOrderTitle,
   isInstantOrder,
   isPendingAcceptance,
+  isPreparingStatus,
   pickFocusOrder,
+  resolveOrderApiIds,
   sortActiveOrdersForBoard,
   getActionableOrders,
 } from "utils/orderActivity";
+import {
+  getPartnerCategoryForStatus,
+  ensurePartnerNotificationSetup,
+} from "services/partnerNotificationActions";
 
 const ONGOING_CHANNEL_ID = "ongoing-orders";
 export const ONGOING_NOTIFICATION_ID = "partner-next-order-activity";
@@ -25,12 +35,14 @@ const IOS_ACTIVITY_ID_KEY = "@partner_next_order_live_activity_id";
 
 let lastOngoingBody = "";
 let lastOngoingTitle = "";
+let lastOngoingCategory = "";
 
 const ensureAndroidChannel = async () => {
   if (Platform.OS !== "android") return;
 
   await Notifications.setNotificationChannelAsync(ONGOING_CHANNEL_ID, {
-    name: "Live Order Banner",
+    name: "Live Order Activity",
+    description: "Always-on order status and quick actions",
     importance: Notifications.AndroidImportance.HIGH,
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
     sound: null,
@@ -72,41 +84,132 @@ const canUseIosLiveActivity = () => {
   );
 };
 
-const buildAndroidBody = (
+type DrawerPayload = {
+  title: string;
+  body: string;
+  subtitle?: string;
+  categoryIdentifier: string;
+  focusOrder: DashboardOrder | null;
+  activeCount: number;
+};
+
+const buildDrawerPayload = (
   dashboard: DashboardData | null | undefined,
+  isOnline: boolean,
   now = Date.now(),
-) => {
-  const summary = buildMultiOrderSummary(dashboard, now, 5);
-  if (!summary.lines.length) {
-    return "Waiting for next order";
+): DrawerPayload => {
+  const summary = buildMultiOrderSummary(dashboard, now, 4);
+  const queue = buildPartnerOrderQueue(dashboard, now);
+  const focusOrder = queue[0] || summary.focusOrder;
+  const stats = summary.stats;
+
+  if (!isOnline) {
+    return {
+      title: "Swasth Bite Partner • Offline",
+      body: "Go online to receive orders\nTap to open dashboard",
+      subtitle: "Store offline",
+      categoryIdentifier: getPartnerCategoryForStatus(),
+      focusOrder: null,
+      activeCount: 0,
+    };
   }
 
-  return [
-    `Pending ${summary.stats.pending} • Prep ${summary.stats.preparing} • Out ${summary.stats.outForDelivery}`,
-    ...summary.lines,
-    summary.stats.active > 5 ? `+${summary.stats.active - 5} more in app` : "",
+  if (!focusOrder) {
+    return {
+      title: "Swasth Bite Partner • Online",
+      body: "Waiting for orders\nTap to open dashboard",
+      subtitle: "No active orders",
+      categoryIdentifier: getPartnerCategoryForStatus(),
+      focusOrder: null,
+      activeCount: 0,
+    };
+  }
+
+  const shortId = getOrderId(focusOrder).slice(-6).toUpperCase();
+  const customer = getOrderCustomerName(focusOrder);
+  const meal = getOrderTitle(focusOrder);
+  const status = formatStatusLabel(focusOrder.status);
+  const instant = isInstantOrder(focusOrder);
+  const pending = isPendingAcceptance(focusOrder);
+  const countdown = instant
+    ? formatCountdown(getInstantDeadline(focusOrder), now, { withSeconds: true })
+    : "";
+
+  const whenLine = instant
+    ? countdown
+      ? `⏱ ${countdown} left`
+      : "Instant order"
+    : `${formatDeliveryDateLabel(focusOrder, now)} • ${formatSlotLabel(focusOrder.slot)}`;
+
+  const statsLine = [
+    stats.pending ? `${stats.pending} pending` : "",
+    stats.preparing ? `${stats.preparing} preparing` : "",
+    stats.outForDelivery ? `${stats.outForDelivery} out` : "",
+  ]
+    .filter(Boolean)
+    .join(" • ");
+
+  const title = pending
+    ? instant
+      ? "⚡ Instant order • Accept now"
+      : "🆕 New order • Accept now"
+    : `NOW • ${status}`;
+
+  const lead = pending
+    ? `#${shortId} • ${customer}\n${meal}\n${whenLine}`
+    : `#${shortId} • ${customer}\n${meal}\n${whenLine}\nDue ${formatDueTime(focusOrder)}`;
+
+  const queueLines = queue
+    .slice(1, 3)
+    .map((order, index) => {
+      const id = getOrderId(order).slice(-6).toUpperCase();
+      return `Next ${index + 1}: #${id} • ${formatStatusLabel(order.status)} • ${getOrderTitle(order)}`;
+    });
+
+  const body = [
+    lead,
+    statsLine ? `Queue: ${statsLine}` : "",
+    queue.length > 1 ? `${queue.length - 1} more in queue` : "",
+    ...queueLines,
   ]
     .filter(Boolean)
     .join("\n");
+
+  return {
+    title,
+    body,
+    subtitle: instant && countdown ? countdown : `${status} • ${customer}`,
+    categoryIdentifier: getPartnerCategoryForStatus(focusOrder.status),
+    focusOrder,
+    activeCount: queue.length || stats.active,
+  };
 };
 
 const toLiveActivityState = (
   dashboard: DashboardData | null | undefined,
+  isOnline: boolean,
   now = Date.now(),
 ): LiveActivity.LiveActivityState => {
-  const summary = buildMultiOrderSummary(dashboard, now, 3);
-  const focusOrder = summary.focusOrder;
+  const drawer = buildDrawerPayload(dashboard, isOnline, now);
+  const focusOrder = drawer.focusOrder;
+
+  if (!isOnline) {
+    return {
+      title: "Store offline",
+      subtitle: "Go online to receive orders",
+    };
+  }
 
   if (!focusOrder) {
     return {
-      title: "No active orders",
-      subtitle: "Waiting for next order",
+      title: "Store online",
+      subtitle: "Waiting for orders",
     };
   }
 
   const state: LiveActivity.LiveActivityState = {
-    title: summary.title,
-    subtitle: summary.subtitle,
+    title: drawer.title.replace(/^NOW • /, ""),
+    subtitle: drawer.subtitle || getOrderTitle(focusOrder),
   };
 
   if (isInstantOrder(focusOrder)) {
@@ -121,10 +224,13 @@ const toLiveActivityState = (
 
 const syncIosLiveActivity = async (
   dashboard: DashboardData | null | undefined,
+  isOnline: boolean,
 ) => {
+  if (!canUseIosLiveActivity()) return;
+
   const existingActivityId = await AsyncStorage.getItem(IOS_ACTIVITY_ID_KEY);
   const orders = sortActiveOrdersForBoard(getActionableOrders(dashboard));
-  const state = toLiveActivityState(dashboard);
+  const state = toLiveActivityState(dashboard, isOnline);
   const focusOrder = pickFocusOrder(dashboard);
   const orderId = focusOrder ? getOrderId(focusOrder) : "";
 
@@ -138,7 +244,7 @@ const syncIosLiveActivity = async (
     timerType: "digital",
   };
 
-  if (!orders.length) {
+  if (!isOnline || !orders.length) {
     if (existingActivityId) {
       await LiveActivity.stopActivity(existingActivityId, state);
     }
@@ -182,6 +288,7 @@ const toDashboardOrder = (order: IncomingOrderSnapshot): DashboardOrder =>
 type SyncActivityOptions = {
   playSound?: boolean;
   forceUpdate?: boolean;
+  isOnline?: boolean;
 };
 
 export async function syncOngoingNextOrderActivityFromOrder(
@@ -205,9 +312,13 @@ export async function syncOngoingNextOrderActivityFromOrder(
 
 export async function tickOngoingOrderActivity(
   dashboard: DashboardData | null | undefined,
+  options: Pick<SyncActivityOptions, "isOnline"> = {},
 ) {
   if (!dashboard) return;
-  await syncOngoingNextOrderActivity(dashboard, { playSound: false });
+  await syncOngoingNextOrderActivity(dashboard, {
+    playSound: false,
+    isOnline: options.isOnline,
+  });
 }
 
 export async function syncOngoingNextOrderActivity(
@@ -218,75 +329,49 @@ export async function syncOngoingNextOrderActivity(
     const hasNotificationPermission = await ensureNotificationPermission();
     if (!hasNotificationPermission) return;
 
-    const summary = buildMultiOrderSummary(dashboard);
-    const focusOrder = summary.focusOrder;
+    await ensurePartnerNotificationSetup();
+
+    const isOnline =
+      options.isOnline ?? Boolean(dashboard?.is_online ?? true);
+    const now = Date.now();
+    const drawer = buildDrawerPayload(dashboard, isOnline, now);
 
     if (Platform.OS === "ios") {
-      if (canUseIosLiveActivity()) {
-        await syncIosLiveActivity(dashboard);
-        return;
-      }
-      // Fallback: standard notification when Live Activity native module unavailable
+      await syncIosLiveActivity(dashboard, isOnline);
     }
 
     if (Platform.OS !== "android" && Platform.OS !== "ios") return;
 
-    if (!focusOrder) {
-      lastOngoingBody = "";
-      lastOngoingTitle = "";
-      await Notifications.dismissNotificationAsync(
-        ONGOING_NOTIFICATION_ID,
-      ).catch(() => null);
-      return;
-    }
-
     await ensureAndroidChannel();
 
-    const now = Date.now();
-    const pendingAcceptance = isPendingAcceptance(focusOrder);
-    const instant = isInstantOrder(focusOrder);
-    const countdown = instant
-      ? formatCountdown(getInstantDeadline(focusOrder))
-      : "";
-
-    const title =
-      summary.stats.active > 1
-        ? `${summary.stats.active} active orders`
-        : pendingAcceptance
-          ? instant
-            ? `⚡ Accept instant order`
-            : `New order waiting`
-          : `${formatStatusLabel(focusOrder.status)}`;
-
-    const lead =
-      instant && countdown
-        ? `⏱ ${countdown} left`
-        : pendingAcceptance
-          ? `${getOrderTitle(focusOrder)} • Tap to accept`
-          : `${getOrderTitle(focusOrder)} • Due ${formatDueTime(focusOrder)}`;
-
-    const body = [lead, buildAndroidBody(dashboard, now)]
-      .filter(Boolean)
-      .join("\n");
+    const { title, body, subtitle, categoryIdentifier, focusOrder, activeCount } =
+      drawer;
 
     const unchanged =
       !options.forceUpdate &&
       title === lastOngoingTitle &&
-      body === lastOngoingBody;
+      body === lastOngoingBody &&
+      categoryIdentifier === lastOngoingCategory;
     if (unchanged) return;
 
     lastOngoingTitle = title;
     lastOngoingBody = body;
+    lastOngoingCategory = categoryIdentifier;
+
+    const orderId = focusOrder ? getOrderId(focusOrder) : "";
+    const altOrderIds = focusOrder ? resolveOrderApiIds(focusOrder).join(",") : "";
 
     await Notifications.scheduleNotificationAsync({
       identifier: ONGOING_NOTIFICATION_ID,
       content: {
         title,
         body,
+        subtitle,
+        categoryIdentifier,
         ...(Platform.OS === "android"
           ? {
               channelId: ONGOING_CHANNEL_ID,
-              priority: Notifications.AndroidNotificationPriority.HIGH,
+              priority: Notifications.AndroidNotificationPriority.MAX,
               autoDismiss: false,
               sticky: true,
             }
@@ -295,9 +380,15 @@ export async function syncOngoingNextOrderActivity(
             }),
         data: {
           type: "ongoing_next_order",
-          orderId: getOrderId(focusOrder),
-          activeCount: summary.stats.active,
-          deliveryMode: focusOrder.delivery_mode || "scheduled",
+          orderId,
+          altOrderIds,
+          activeCount,
+          deliveryMode: focusOrder?.delivery_mode || "scheduled",
+          nextStatus: focusOrder && isPendingAcceptance(focusOrder)
+            ? "preparing"
+            : focusOrder && isPreparingStatus(focusOrder.status)
+              ? "out_for_delivery"
+              : "",
           silent: true,
         },
         sound: options.playSound ? "default" : false,
@@ -312,26 +403,22 @@ export async function syncOngoingNextOrderActivity(
 export async function clearOngoingNextOrderActivity() {
   lastOngoingBody = "";
   lastOngoingTitle = "";
-  if (Platform.OS === "ios") {
-    if (!canUseIosLiveActivity()) {
-      await AsyncStorage.removeItem(IOS_ACTIVITY_ID_KEY);
-      return;
-    }
+  lastOngoingCategory = "";
 
-    const activityId = await AsyncStorage.getItem(IOS_ACTIVITY_ID_KEY);
-    if (activityId) {
-      await LiveActivity.stopActivity(activityId, {
-        title: "Signed out",
-        subtitle: "Partner activity ended",
-      });
+  if (Platform.OS === "ios") {
+    if (canUseIosLiveActivity()) {
+      const activityId = await AsyncStorage.getItem(IOS_ACTIVITY_ID_KEY);
+      if (activityId) {
+        await LiveActivity.stopActivity(activityId, {
+          title: "Signed out",
+          subtitle: "Partner activity ended",
+        });
+      }
     }
     await AsyncStorage.removeItem(IOS_ACTIVITY_ID_KEY);
-    return;
   }
 
-  if (Platform.OS === "android") {
-    await Notifications.dismissNotificationAsync(ONGOING_NOTIFICATION_ID).catch(
-      () => null,
-    );
-  }
+  await Notifications.dismissNotificationAsync(ONGOING_NOTIFICATION_ID).catch(
+    () => null,
+  );
 }

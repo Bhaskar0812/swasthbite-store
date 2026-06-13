@@ -39,6 +39,50 @@ export const getOrderTitle = (order: DashboardOrder) =>
   normalizeText(order.package_name) ||
   "Order";
 
+export const getOrderCustomerName = (order: DashboardOrder) =>
+  normalizeText(order.user_name) || "Customer";
+
+export const resolveOrderApiIds = (order: DashboardOrder) => {
+  const candidates = [
+    (order as any)?.order_id,
+    (order as any)?.subscription_id,
+    order?._id,
+    (order as any)?.id,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  return Array.from(new Set(candidates));
+};
+
+export const resolveDeliveryIndexes = (order: DashboardOrder) => {
+  const raw = [
+    (order as any)?.delivery_index,
+    (order as any)?.current_delivery_index,
+    (order as any)?.next_delivery_index,
+    0,
+  ];
+
+  const normalized = raw
+    .map((value) => Number(value))
+    .filter((value) => Number.isInteger(value) && value >= 0);
+
+  return Array.from(new Set(normalized));
+};
+
+export const getStoreQuickAction = (
+  status?: string,
+): { label: string; value: string } | null => {
+  const value = String(status || "").toLowerCase();
+  if (isPendingStatus(value)) {
+    return { label: "Start Preparing", value: "preparing" };
+  }
+  if (isPreparingStatus(value)) {
+    return { label: "Mark Out for Delivery", value: "out_for_delivery" };
+  }
+  return null;
+};
+
 export const isFinalStatus = (status?: string) =>
   FINAL_STATUSES.has(String(status || "").toLowerCase());
 
@@ -54,8 +98,16 @@ export const filterVisibleStoreOrders = (orders: DashboardOrder[] = []) =>
 export const isInstantOrder = (order: DashboardOrder) =>
   String(order.delivery_mode || "").toLowerCase() === "instant";
 
-export const isPendingAcceptance = (order: DashboardOrder) =>
-  PENDING_STATUSES.has(String(order.status || "").toLowerCase());
+export const isPendingStatus = (status?: string) =>
+  PENDING_STATUSES.has(String(status || "").toLowerCase());
+
+export const isPendingAcceptance = (orderOrStatus: DashboardOrder | string) => {
+  const status =
+    typeof orderOrStatus === "string"
+      ? orderOrStatus
+      : String(orderOrStatus?.status || "");
+  return isPendingStatus(status);
+};
 
 export const isPreparingStatus = (status?: string) => {
   const value = String(status || "").toLowerCase();
@@ -82,7 +134,7 @@ export const getInstantDeadline = (order: DashboardOrder) => {
     if (!Number.isNaN(deadline) && deadline > 0) return deadline;
   }
   const createdAt = order.createdAt ? new Date(order.createdAt).getTime() : 0;
-  return createdAt ? createdAt + 2 * 60 * 1000 : 0;
+  return createdAt ? createdAt + 60 * 60 * 1000 : 0;
 };
 
 export const formatCountdown = (
@@ -329,7 +381,18 @@ export const sortPartnerOrderQueue = (
 export const buildPartnerOrderQueue = (
   dashboard: DashboardData | null | undefined,
   now = Date.now(),
-) => sortPartnerOrderQueue(getActionableOrders(dashboard), now);
+) => {
+  const actionable = getActionableOrders(dashboard);
+  const todayKey = getTodayDateKey(now);
+  const todayQueue = actionable.filter((order) => {
+    if (isInstantOrder(order)) return true;
+    return getOrderDeliveryDateKey(order, now) === todayKey;
+  });
+  return sortPartnerOrderQueue(
+    todayQueue.length ? todayQueue : actionable,
+    now,
+  );
+};
 
 export const sortActiveOrdersForBoard = (orders: DashboardOrder[]) => {
   return [...orders].sort((a, b) => {
