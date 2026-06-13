@@ -42,6 +42,15 @@ export const getOrderTitle = (order: DashboardOrder) =>
 export const isFinalStatus = (status?: string) =>
   FINAL_STATUSES.has(String(status || "").toLowerCase());
 
+/** Deliveries hidden from store lists (customer skipped / missed / cancelled). */
+export const isHiddenStoreDelivery = (status?: string) => {
+  const value = String(status || "").toLowerCase();
+  return value === "skipped" || value === "missed" || value === "cancelled";
+};
+
+export const filterVisibleStoreOrders = (orders: DashboardOrder[] = []) =>
+  orders.filter((order) => !isHiddenStoreDelivery(order.status));
+
 export const isInstantOrder = (order: DashboardOrder) =>
   String(order.delivery_mode || "").toLowerCase() === "instant";
 
@@ -124,10 +133,128 @@ export const formatStatusLabel = (status?: string) => {
   }
 };
 
+export const SLOT_ORDER: Record<string, number> = {
+  morning: 1,
+  lunch: 2,
+  evening: 3,
+  dinner: 4,
+};
+
+export const getSlotSortRank = (slot?: string) =>
+  SLOT_ORDER[String(slot || "").trim().toLowerCase()] ?? 99;
+
+export const getOrderDeliveryTimestamp = (order: DashboardOrder) => {
+  const raw = order.date || order.createdAt;
+  if (!raw) return 0;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+};
+
+export const getOrderDeliveryDateKey = (order: DashboardOrder, now = Date.now()) => {
+  const ts = getOrderDeliveryTimestamp(order);
+  if (!ts) return "";
+  return new Date(ts).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+};
+
+export const getTodayDateKey = (now = Date.now()) =>
+  new Date(now).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+
+export const getTomorrowDateKey = (now = Date.now()) =>
+  new Date(now + 86400000).toLocaleDateString("en-CA", {
+    timeZone: "Asia/Kolkata",
+  });
+
 export const formatSlotLabel = (slot?: string) => {
   const normalized = String(slot || "").trim().toLowerCase();
   if (!normalized) return "Scheduled";
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+};
+
+/** Prominent delivery date for store cards — Today/Tomorrow + weekday. */
+export const formatDeliveryDateLabel = (
+  order: DashboardOrder,
+  now = Date.now(),
+) => {
+  const ts = getOrderDeliveryTimestamp(order);
+  if (!ts) return "Date unavailable";
+
+  const dateKey = getOrderDeliveryDateKey(order, now);
+  const todayKey = getTodayDateKey(now);
+  const tomorrowKey = getTomorrowDateKey(now);
+
+  const formatted = new Date(ts).toLocaleDateString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+  });
+
+  if (dateKey === todayKey) return `Today • ${formatted}`;
+  if (dateKey === tomorrowKey) return `Tomorrow • ${formatted}`;
+  return formatted;
+};
+
+export const compareStoreOrdersByDateAndSlot = (
+  a: DashboardOrder,
+  b: DashboardOrder,
+  options: {
+    dateDirection?: "asc" | "desc";
+    instantFirst?: boolean;
+  } = {},
+) => {
+  const { dateDirection = "asc", instantFirst = true } = options;
+
+  if (instantFirst) {
+    const aInstant = isInstantOrder(a);
+    const bInstant = isInstantOrder(b);
+    if (aInstant !== bInstant) return aInstant ? -1 : 1;
+  }
+
+  const aDate = getOrderDeliveryTimestamp(a);
+  const bDate = getOrderDeliveryTimestamp(b);
+  if (aDate !== bDate) {
+    return dateDirection === "asc" ? aDate - bDate : bDate - aDate;
+  }
+
+  return getSlotSortRank(a.slot) - getSlotSortRank(b.slot);
+};
+
+export const sortStoreOrdersByDateAndSlot = (
+  orders: DashboardOrder[],
+  options?: {
+    dateDirection?: "asc" | "desc";
+    instantFirst?: boolean;
+  },
+) =>
+  [...orders].sort((a, b) => compareStoreOrdersByDateAndSlot(a, b, options));
+
+/** Today orders first, then tomorrow; lunch before dinner within each day. */
+export const sortUpcomingStoreOrders = (orders: DashboardOrder[], now = Date.now()) => {
+  const todayKey = getTodayDateKey(now);
+  const tomorrowKey = getTomorrowDateKey(now);
+
+  return [...orders].sort((a, b) => {
+    const aInstant = isInstantOrder(a);
+    const bInstant = isInstantOrder(b);
+    if (aInstant !== bInstant) return aInstant ? -1 : 1;
+
+    const aKey = getOrderDeliveryDateKey(a, now) || todayKey;
+    const bKey = getOrderDeliveryDateKey(b, now) || todayKey;
+
+    const dayRank = (key: string) => {
+      if (key === todayKey) return 0;
+      if (key === tomorrowKey) return 1;
+      return 2;
+    };
+
+    const aDay = dayRank(aKey);
+    const bDay = dayRank(bKey);
+    if (aDay !== bDay) return aDay - bDay;
+
+    if (aKey !== bKey) return aKey.localeCompare(bKey);
+
+    return getSlotSortRank(a.slot) - getSlotSortRank(b.slot);
+  });
 };
 
 export const formatDueTime = (order: DashboardOrder) => {
@@ -144,22 +271,65 @@ export const formatDueTime = (order: DashboardOrder) => {
   });
 };
 
-const toDateTime = (order: DashboardOrder) => {
-  const createdAt = order.createdAt ? new Date(order.createdAt).getTime() : 0;
-  const dateOnly = order.date ? new Date(order.date).getTime() : 0;
-  return createdAt || dateOnly || 0;
-};
-
 export const getActionableOrders = (
   dashboard: DashboardData | null | undefined,
 ) => {
   if (!dashboard) return [];
 
-  return [
+  return filterVisibleStoreOrders([
     ...(dashboard.today_orders || []),
     ...(dashboard.tomorrow_orders || []),
-  ].filter(isActionableOrder);
+  ]).filter(isActionableOrder);
 };
+
+export const getOrderCardKey = (order: DashboardOrder) =>
+  String(
+    (order as any)?._id ||
+      (order as any)?.order_id ||
+      (order as any)?.subscription_id ||
+      (order as any)?.id ||
+      "",
+  ).trim();
+
+const getPartnerStatusRank = (order: DashboardOrder) => {
+  const status = String(order.status || "").toLowerCase();
+  if (isInstantOrder(order) && isPendingAcceptance(status)) return 0;
+  if (isPendingAcceptance(status)) return 1;
+  if (isPreparingStatus(status)) return 2;
+  if (isOutForDeliveryStatus(status)) return 3;
+  return 99;
+};
+
+/** Zomato-style queue: urgent instant → new pending → preparing → out for delivery. */
+export const sortPartnerOrderQueue = (
+  orders: DashboardOrder[],
+  now = Date.now(),
+) =>
+  [...orders].sort((a, b) => {
+    const aRank = getPartnerStatusRank(a);
+    const bRank = getPartnerStatusRank(b);
+    if (aRank !== bRank) return aRank - bRank;
+
+    if (aRank === 0) {
+      return getInstantDeadline(a) - getInstantDeadline(b);
+    }
+
+    if (aRank === 1) {
+      const aCreated = new Date(a.createdAt || 0).getTime();
+      const bCreated = new Date(b.createdAt || 0).getTime();
+      if (aCreated !== bCreated) return bCreated - aCreated;
+    }
+
+    return compareStoreOrdersByDateAndSlot(a, b, {
+      instantFirst: false,
+      dateDirection: "asc",
+    });
+  });
+
+export const buildPartnerOrderQueue = (
+  dashboard: DashboardData | null | undefined,
+  now = Date.now(),
+) => sortPartnerOrderQueue(getActionableOrders(dashboard), now);
 
 export const sortActiveOrdersForBoard = (orders: DashboardOrder[]) => {
   return [...orders].sort((a, b) => {
@@ -182,7 +352,7 @@ export const sortActiveOrdersForBoard = (orders: DashboardOrder[]) => {
     const bPreparing = isPreparingStatus(b.status) ? 0 : 1;
     if (aPreparing !== bPreparing) return aPreparing - bPreparing;
 
-    return toDateTime(a) - toDateTime(b);
+    return compareStoreOrdersByDateAndSlot(a, b, { instantFirst: false });
   });
 };
 

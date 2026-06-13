@@ -20,19 +20,22 @@ import {
 } from "utils/orderActivity";
 
 const ONGOING_CHANNEL_ID = "ongoing-orders";
-const ONGOING_NOTIFICATION_ID = "partner-next-order-activity";
+export const ONGOING_NOTIFICATION_ID = "partner-next-order-activity";
 const IOS_ACTIVITY_ID_KEY = "@partner_next_order_live_activity_id";
+
+let lastOngoingBody = "";
+let lastOngoingTitle = "";
 
 const ensureAndroidChannel = async () => {
   if (Platform.OS !== "android") return;
 
   await Notifications.setNotificationChannelAsync(ONGOING_CHANNEL_ID, {
-    name: "Ongoing Order Activity",
-    importance: Notifications.AndroidImportance.MAX,
+    name: "Live Order Banner",
+    importance: Notifications.AndroidImportance.HIGH,
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-    sound: "default",
-    vibrationPattern: [0, 250, 150, 250],
-    bypassDnd: true,
+    sound: null,
+    enableVibrate: false,
+    bypassDnd: false,
   });
 };
 
@@ -176,9 +179,15 @@ const toDashboardOrder = (order: IncomingOrderSnapshot): DashboardOrder =>
     createdAt: new Date().toISOString(),
   }) as DashboardOrder;
 
+type SyncActivityOptions = {
+  playSound?: boolean;
+  forceUpdate?: boolean;
+};
+
 export async function syncOngoingNextOrderActivityFromOrder(
   order: IncomingOrderSnapshot,
   dashboard?: DashboardData | null,
+  options?: SyncActivityOptions,
 ) {
   const snapshotOrder = toDashboardOrder(order);
   const mergedDashboard: DashboardData = {
@@ -191,18 +200,19 @@ export async function syncOngoingNextOrderActivityFromOrder(
     ],
   };
 
-  await syncOngoingNextOrderActivity(mergedDashboard);
+  await syncOngoingNextOrderActivity(mergedDashboard, options);
 }
 
 export async function tickOngoingOrderActivity(
   dashboard: DashboardData | null | undefined,
 ) {
   if (!dashboard) return;
-  await syncOngoingNextOrderActivity(dashboard);
+  await syncOngoingNextOrderActivity(dashboard, { playSound: false });
 }
 
 export async function syncOngoingNextOrderActivity(
   dashboard: DashboardData | null | undefined,
+  options: SyncActivityOptions = {},
 ) {
   try {
     const hasNotificationPermission = await ensureNotificationPermission();
@@ -222,6 +232,8 @@ export async function syncOngoingNextOrderActivity(
     if (Platform.OS !== "android" && Platform.OS !== "ios") return;
 
     if (!focusOrder) {
+      lastOngoingBody = "";
+      lastOngoingTitle = "";
       await Notifications.dismissNotificationAsync(
         ONGOING_NOTIFICATION_ID,
       ).catch(() => null);
@@ -230,6 +242,7 @@ export async function syncOngoingNextOrderActivity(
 
     await ensureAndroidChannel();
 
+    const now = Date.now();
     const pendingAcceptance = isPendingAcceptance(focusOrder);
     const instant = isInstantOrder(focusOrder);
     const countdown = instant
@@ -238,40 +251,56 @@ export async function syncOngoingNextOrderActivity(
 
     const title =
       summary.stats.active > 1
-        ? `${summary.stats.active} Active Orders`
+        ? `${summary.stats.active} active orders`
         : pendingAcceptance
-          ? `Action: ${getOrderTitle(focusOrder)}`
-          : `${formatStatusLabel(focusOrder.status)}: ${getOrderTitle(focusOrder)}`;
+          ? instant
+            ? `⚡ Accept instant order`
+            : `New order waiting`
+          : `${formatStatusLabel(focusOrder.status)}`;
 
     const lead =
       instant && countdown
-        ? `⚡ ${countdown}`
+        ? `⏱ ${countdown} left`
         : pendingAcceptance
-          ? "Accept now"
-          : `Due ${formatDueTime(focusOrder)}`;
+          ? `${getOrderTitle(focusOrder)} • Tap to accept`
+          : `${getOrderTitle(focusOrder)} • Due ${formatDueTime(focusOrder)}`;
+
+    const body = [lead, buildAndroidBody(dashboard, now)]
+      .filter(Boolean)
+      .join("\n");
+
+    const unchanged =
+      !options.forceUpdate &&
+      title === lastOngoingTitle &&
+      body === lastOngoingBody;
+    if (unchanged) return;
+
+    lastOngoingTitle = title;
+    lastOngoingBody = body;
 
     await Notifications.scheduleNotificationAsync({
       identifier: ONGOING_NOTIFICATION_ID,
       content: {
         title,
-        body: [lead, buildAndroidBody(dashboard)].filter(Boolean).join("\n"),
+        body,
         ...(Platform.OS === "android"
           ? {
               channelId: ONGOING_CHANNEL_ID,
-              priority: Notifications.AndroidNotificationPriority.MAX,
+              priority: Notifications.AndroidNotificationPriority.HIGH,
               autoDismiss: false,
               sticky: true,
             }
           : {
-              interruptionLevel: "active",
+              interruptionLevel: "passive",
             }),
         data: {
           type: "ongoing_next_order",
           orderId: getOrderId(focusOrder),
           activeCount: summary.stats.active,
           deliveryMode: focusOrder.delivery_mode || "scheduled",
+          silent: true,
         },
-        sound: false,
+        sound: options.playSound ? "default" : false,
       },
       trigger: null,
     });
@@ -281,6 +310,8 @@ export async function syncOngoingNextOrderActivity(
 }
 
 export async function clearOngoingNextOrderActivity() {
+  lastOngoingBody = "";
+  lastOngoingTitle = "";
   if (Platform.OS === "ios") {
     if (!canUseIosLiveActivity()) {
       await AsyncStorage.removeItem(IOS_ACTIVITY_ID_KEY);

@@ -323,4 +323,18 @@ export const storeService = {
     const res = await api.get("/store/location-requests");
     return res.data;
   },
+  skipDelivery: async (
+    orderId: string,
+    payload: { date: string; slot?: string; skip_quantity?: number },
+  ) => {
+    const res = await api.put(`/store/orders/${orderId}/skip-delivery`, payload);
+    return res.data;
+  },
+  rescheduleDelivery: async (
+    orderId: string,
+    payload: { date: string; slot?: string; new_date: string; new_slot?: string },
+  ) => {
+    const res = await api.put(`/store/orders/${orderId}/reschedule-delivery`, payload);
+    return res.data;
+  },
 };

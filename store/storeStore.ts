@@ -48,7 +48,7 @@ export const useStoreStore = create<StoreState>((set, get) => ({
         loading: false,
       });
       await syncPendingIncomingOrdersFromDashboard(dashboardData);
-      await syncOngoingNextOrderActivity(dashboardData);
+      await syncOngoingNextOrderActivity(dashboardData, { playSound: false });
     } catch {
       set({ loading: false });
     }

@@ -19,8 +19,9 @@ export type IncomingOrderInfo = {
   totalAmount?: number;
 };
 
-const reminderTimers = new Map<string, Array<ReturnType<typeof setTimeout>>>();
 const alertedOrders = new Set<string>();
+const recentAlertAt = new Map<string, number>();
+const ALERT_DEDUPE_MS = 10000;
 
 const normalizeText = (value?: unknown) => {
   const normalized = String(value ?? "").trim();
@@ -160,85 +161,12 @@ const buildNotificationBody = (order: IncomingOrderInfo) => {
   return `${modeLabel} #${shortId} • ${order.packageName} • ${order.customerName} • ${formatTimerText(order)}`;
 };
 
-const buildIncomingNotificationContent = (
-  order: IncomingOrderInfo,
-  title: string,
-): Notifications.NotificationContentInput => ({
-  title,
-  body: buildNotificationBody(order),
-  sound: "default",
-  badge: 1,
-  data: {
-    type: "order_new",
-    event: "order:new",
-    subscription_id: order.orderId,
-    orderId: order.orderId,
-    delivery_mode: order.deliveryMode,
-    status: order.status,
-    requires_acceptance: true,
-  },
-  ...(Platform.OS === "android"
-    ? {
-        channelId: INCOMING_CHANNEL_ID,
-        priority: Notifications.AndroidNotificationPriority.MAX,
-        sticky: true,
-        autoDismiss: false,
-      }
-    : {
-        interruptionLevel: "active",
-      }),
-});
-
-const presentIncomingNotification = async (
-  order: IncomingOrderInfo,
-  title: string,
-) => {
-  const hasPermission = await ensureNotificationPermission();
-  if (!hasPermission) {
-    console.warn("Incoming order alert skipped — notification permission denied");
-    return;
-  }
-
-  await ensureIncomingOrdersChannel();
-
-  const content = buildIncomingNotificationContent(order, title);
-
-  // Present immediately so Android shows it in the status bar even in foreground.
-  if (typeof Notifications.presentNotificationAsync === "function") {
-    await Notifications.presentNotificationAsync(content);
-    return;
-  }
-
-  await Notifications.scheduleNotificationAsync({
-    identifier: INCOMING_NOTIFICATION_ID,
-    content,
-    trigger: null,
-  });
-};
-
-const clearReminderTimers = (orderId: string) => {
-  const timers = reminderTimers.get(orderId) || [];
-  timers.forEach((timerId) => clearTimeout(timerId));
-  reminderTimers.delete(orderId);
-};
-
-const scheduleIncomingReminders = (order: IncomingOrderInfo) => {
-  clearReminderTimers(order.orderId);
-
-  const delays = [10000, 25000, 60000];
-  const timers = delays.map((delayMs) =>
-    setTimeout(() => {
-      if (!alertedOrders.has(order.orderId)) return;
-      presentIncomingNotification(
-        order,
-        order.deliveryMode === "instant"
-          ? "⚡ Reminder: Instant order waiting"
-          : "Reminder: New order waiting",
-      ).catch(() => null);
-    }, delayMs),
-  );
-
-  reminderTimers.set(order.orderId, timers);
+const shouldSkipDuplicateAlert = (orderId: string) => {
+  const now = Date.now();
+  const last = recentAlertAt.get(orderId) || 0;
+  if (now - last < ALERT_DEDUPE_MS) return true;
+  recentAlertAt.set(orderId, now);
+  return false;
 };
 
 export async function alertIncomingOrder(
@@ -278,32 +206,39 @@ export async function alertIncomingOrder(
     return;
   }
 
-  if (alertedOrders.has(order.orderId)) {
-    await presentIncomingNotification(order, "New order received");
+  const isFirstAlert = !alertedOrders.has(order.orderId);
+  if (!isFirstAlert) {
+    if (shouldSkipDuplicateAlert(order.orderId)) {
+      await syncOngoingNextOrderActivityFromOrder(order, dashboard, {
+        playSound: false,
+      });
+      return;
+    }
+    await syncOngoingNextOrderActivityFromOrder(order, dashboard, {
+      playSound: false,
+    });
+    return;
+  }
+
+  if (shouldSkipDuplicateAlert(order.orderId)) {
     return;
   }
 
   alertedOrders.add(order.orderId);
 
-  await presentIncomingNotification(
-    order,
-    order.deliveryMode === "instant"
-      ? "⚡ Instant order received!"
-      : "New order received!",
-  );
-
-  scheduleIncomingReminders(order);
-  await syncOngoingNextOrderActivityFromOrder(order, dashboard);
+  await syncOngoingNextOrderActivityFromOrder(order, dashboard, {
+    playSound: true,
+    forceUpdate: true,
+  });
 }
 
 export async function clearIncomingOrderAlert(orderId?: string) {
   if (orderId) {
     alertedOrders.delete(orderId);
-    clearReminderTimers(orderId);
+    recentAlertAt.delete(orderId);
   } else {
     alertedOrders.clear();
-    reminderTimers.forEach((timers) => timers.forEach((timerId) => clearTimeout(timerId)));
-    reminderTimers.clear();
+    recentAlertAt.clear();
   }
 
   await Notifications.dismissNotificationAsync(INCOMING_NOTIFICATION_ID).catch(
@@ -324,7 +259,7 @@ export async function transitionAcceptedOrder(
   ).toLowerCase();
 
   alertedOrders.delete(order.orderId);
-  clearReminderTimers(order.orderId);
+  recentAlertAt.delete(order.orderId);
   await Notifications.dismissNotificationAsync(INCOMING_NOTIFICATION_ID).catch(
     () => null,
   );
@@ -404,17 +339,27 @@ const dashboardOrderToPayload = (order: any) => {
 export async function syncPendingIncomingOrdersFromDashboard(
   dashboard: DashboardData | null | undefined,
 ) {
-  if (!dashboard?.today_orders?.length) return;
+  const candidates = [
+    ...(dashboard?.today_orders || []),
+    ...(dashboard?.tomorrow_orders || []),
+  ];
 
-  const pendingOrders = dashboard.today_orders.filter((order) => {
+  const pendingOrders = candidates.filter((order) => {
     const status = String(order.status || "").toLowerCase();
     const mode = String((order as any)?.delivery_mode || "").toLowerCase();
     if (["pending", "scheduled"].includes(status)) return true;
-    return mode === "instant" && !["delivered", "cancelled", "preparing", "out_for_delivery"].includes(status);
+    return (
+      mode === "instant" &&
+      !["delivered", "cancelled", "preparing", "out_for_delivery"].includes(
+        status,
+      )
+    );
   });
 
   for (const order of pendingOrders) {
-    const orderId = String((order as any)?.order_id || (order as any)?.subscription_id || "");
+    const orderId = String(
+      (order as any)?.order_id || (order as any)?.subscription_id || "",
+    ).trim();
     if (!orderId || alertedOrders.has(orderId)) continue;
 
     await alertIncomingOrder(dashboardOrderToPayload(order), dashboard);

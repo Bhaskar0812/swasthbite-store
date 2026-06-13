@@ -530,9 +530,9 @@ export default function StoreOrderDetailScreen() {
         <Text className="text-2xl font-bold text-textPrimary mb-3">Delivery Timeline</Text>
         {sortedDeliveryDates.length ? (
           sortedDeliveryDates.map((dateKey) => {
-            // Only show today's deliveries
             const today = new Date().toISOString().split('T')[0];
-            if (dateKey !== today) return null;
+            if (dateKey < today) return null;
+            if (String(order.delivery_mode || '').toLowerCase() === 'instant') return null;
             const sortedDateDeliveries = [...(deliveryGroups[dateKey] || [])].sort((a: any, b: any) => {
               const statusA = String(a?.status || '').toLowerCase();
               const statusB = String(b?.status || '').toLowerCase();
@@ -551,22 +551,51 @@ export default function StoreOrderDetailScreen() {
                 <Text className="text-lg font-semibold text-textPrimary mb-2">{formatDateLabel(dateKey)}</Text>
                 {sortedDateDeliveries.map((delivery: any) => {
                   const meta = STATUS_META[String(delivery.status || '').toLowerCase()] || STATUS_META.scheduled;
-                  const canEdit = !['delivered', 'cancelled'].includes(String(delivery.status || '').toLowerCase());
-                  // Per-day cancellation handler
-                  const cancelDelivery = async () => {
-                    Alert.alert('Cancel this delivery?', 'This will cancel only this day’s delivery. Are you sure?', [
-                      { text: 'No', style: 'cancel' },
+                  const canEdit = !['delivered', 'cancelled', 'skipped'].includes(String(delivery.status || '').toLowerCase());
+                  const deliveryDateStr = new Date(delivery.date).toISOString().split('T')[0];
+                  const skipDeliveryForCustomer = async () => {
+                    Alert.alert('Skip this delivery?', 'Skipped delivery will be added at end of customer plan.', [
+                      { text: 'Cancel', style: 'cancel' },
                       {
-                        text: 'Yes, cancel',
+                        text: 'Skip',
                         style: 'destructive',
                         onPress: async () => {
                           try {
-                            setUpdatingKey('cancel-' + delivery._id);
-                            const res = await storeService.cancelDelivery(String(order._id), String(delivery._id));
-                            setOrder(res.data?.data?.order || res.data?.data || order);
-                            Alert.alert('Cancelled', 'Delivery cancelled successfully.');
+                            setUpdatingKey('skip-' + delivery._id);
+                            const res = await storeService.skipDelivery(String(order._id), {
+                              date: deliveryDateStr,
+                              slot: delivery.slot,
+                            });
+                            setOrder(res.data?.subscription || res.data || order);
+                            Alert.alert('Skipped', 'Delivery skipped for customer.');
                           } catch (error: any) {
-                            Alert.alert('Error', error?.response?.data?.message || 'Failed to cancel delivery');
+                            Alert.alert('Error', error?.response?.data?.message || 'Failed to skip delivery');
+                          } finally {
+                            setUpdatingKey(null);
+                          }
+                        },
+                      },
+                    ]);
+                  };
+                  const rescheduleDeliveryForCustomer = async () => {
+                    const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+                    Alert.alert('Reschedule delivery', `Move to tomorrow (${tomorrow})?`, [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Reschedule',
+                        onPress: async () => {
+                          try {
+                            setUpdatingKey('reschedule-' + delivery._id);
+                            const res = await storeService.rescheduleDelivery(String(order._id), {
+                              date: deliveryDateStr,
+                              slot: delivery.slot,
+                              new_date: tomorrow,
+                              new_slot: delivery.slot,
+                            });
+                            setOrder(res.data?.subscription || res.data || order);
+                            Alert.alert('Rescheduled', 'Delivery date updated for customer.');
+                          } catch (error: any) {
+                            Alert.alert('Error', error?.response?.data?.message || 'Failed to reschedule delivery');
                           } finally {
                             setUpdatingKey(null);
                           }
@@ -624,19 +653,30 @@ export default function StoreOrderDetailScreen() {
                         </View>
                       ) : null}
 
-                      {/* Per-day cancel button, only if not delivered/cancelled */}
-                      {canEdit && (
-                        <TouchableOpacity
-                          onPress={cancelDelivery}
-                          disabled={updatingKey === 'cancel-' + delivery._id}
-                          className="rounded-2xl px-4 py-3 mt-2"
-                          style={{ backgroundColor: '#FFF1F2' }}
-                        >
-                          <Text className="text-error text-base font-semibold text-center">
-                            {updatingKey === 'cancel-' + delivery._id ? 'Cancelling...' : 'Cancel This Delivery'}
-                          </Text>
-                        </TouchableOpacity>
-                      )}
+                      {canEdit && String(delivery.status || '').toLowerCase() === 'scheduled' ? (
+                        <View className="flex-row gap-2 mt-2">
+                          <TouchableOpacity
+                            onPress={skipDeliveryForCustomer}
+                            disabled={updatingKey === 'skip-' + delivery._id}
+                            className="flex-1 rounded-2xl px-4 py-3"
+                            style={{ backgroundColor: '#FFF1F2' }}
+                          >
+                            <Text className="text-error text-base font-semibold text-center">
+                              {updatingKey === 'skip-' + delivery._id ? 'Skipping...' : 'Skip'}
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={rescheduleDeliveryForCustomer}
+                            disabled={updatingKey === 'reschedule-' + delivery._id}
+                            className="flex-1 rounded-2xl px-4 py-3"
+                            style={{ backgroundColor: '#EFF6FF' }}
+                          >
+                            <Text className="text-base font-semibold text-center" style={{ color: '#2563EB' }}>
+                              {updatingKey === 'reschedule-' + delivery._id ? 'Updating...' : 'Reschedule'}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : null}
 
                       <Text className="text-base text-textTertiary mt-2">
                         Status updates are managed from the dashboard.

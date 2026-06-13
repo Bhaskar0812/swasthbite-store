@@ -16,7 +16,13 @@ import { useStoreStore } from 'store/storeStore';
 import type { DashboardOrder } from 'types';
 import { pickImageUrl, resolveImageUrl } from 'utils/image';
 import LiveOrderActivityBoard from 'components/LiveOrderActivityBoard';
-import { formatCountdown, getInstantDeadline } from 'utils/orderActivity';
+import DeliveryScheduleBanner from 'components/DeliveryScheduleBanner';
+import {
+  formatCountdown,
+  getInstantDeadline,
+  isHiddenStoreDelivery,
+  sortStoreOrdersByDateAndSlot,
+} from 'utils/orderActivity';
 
 type OrdersTab = 'today' | 'tomorrow' | 'delivered';
 
@@ -130,7 +136,7 @@ export default function OrdersScreen() {
 
   const isTerminalOrder = (item: DashboardOrder) => {
     const status = String(item.status || '').toLowerCase();
-    return ['delivered', 'completed', 'cancelled', 'failed', 'skipped'].includes(status);
+    return ['delivered', 'completed', 'cancelled', 'failed', 'skipped', 'missed'].includes(status);
   };
 
   const isPreparingStatus = (status?: string) => {
@@ -148,56 +154,28 @@ export default function OrdersScreen() {
     return ['delivered', 'completed'].includes(value);
   };
 
-  const sortOrders = (list: DashboardOrder[]) => {
-    return [...list].sort((a, b) => {
-      const aDate = new Date(a.date || a.createdAt || 0).getTime();
-      const bDate = new Date(b.date || b.createdAt || 0).getTime();
-      if (aDate !== bDate) return bDate - aDate;
-
-      const slotOrder: Record<string, number> = {
-        morning: 1,
-        lunch: 2,
-        evening: 3,
-        dinner: 4,
-      };
-      const aSlot = slotOrder[String(a.slot || '').toLowerCase()] || 99;
-      const bSlot = slotOrder[String(b.slot || '').toLowerCase()] || 99;
-      return aSlot - bSlot;
-    });
-  };
-
-  const formatOrderDate = (item: DashboardOrder) => {
-    const raw = item.date || item.createdAt || '';
-    const parsed = new Date(raw);
-    if (Number.isNaN(parsed.getTime())) return 'Date unavailable';
-    return parsed.toLocaleDateString('en-IN', {
-      weekday: 'short',
-      day: '2-digit',
-      month: 'short',
-    });
-  };
-
-  const formatSlotLabel = (slot?: string) => {
-    const normalized = String(slot || '').trim().toLowerCase();
-    if (!normalized) return 'Scheduled';
-    return normalized.charAt(0).toUpperCase() + normalized.slice(1);
-  };
+  const sortOrders = (list: DashboardOrder[], dateDirection: 'asc' | 'desc' = 'asc') =>
+    sortStoreOrdersByDateAndSlot(list, { dateDirection, instantFirst: true });
 
   const todayDateLabel = useMemo(() => {
     const d = new Date(now);
     return d.toISOString().split('T')[0];
   }, [now]);
 
-  const todayAllOrders = dashboard?.today_orders || [];
-  const tomorrowAllOrders = dashboard?.tomorrow_orders || [];
+  const todayAllOrders = (dashboard?.today_orders || []).filter(
+    (item) => !isHiddenStoreDelivery(item.status),
+  );
+  const tomorrowAllOrders = (dashboard?.tomorrow_orders || []).filter(
+    (item) => !isHiddenStoreDelivery(item.status),
+  );
 
   const todaySliderOrders = useMemo(
-    () => sortOrders(todayAllOrders.filter((item) => !isTerminalOrder(item))),
+    () => sortOrders(todayAllOrders.filter((item) => !isTerminalOrder(item)), 'asc'),
     [todayAllOrders],
   );
 
   const tomorrowSliderOrders = useMemo(
-    () => sortOrders(tomorrowAllOrders.filter((item) => !isTerminalOrder(item))),
+    () => sortOrders(tomorrowAllOrders.filter((item) => !isTerminalOrder(item)), 'asc'),
     [tomorrowAllOrders],
   );
 
@@ -205,7 +183,7 @@ export default function OrdersScreen() {
     const backendDelivered = dashboard?.delivered_orders || [];
     const fallbackDelivered = [...todayAllOrders, ...tomorrowAllOrders].filter((item) => isDeliveredOrder(item));
     const source = backendDelivered.length ? backendDelivered : fallbackDelivered;
-    return sortOrders(source.filter((item) => isDeliveredOrder(item)));
+    return sortOrders(source.filter((item) => isDeliveredOrder(item)), 'desc');
   }, [dashboard?.delivered_orders, todayAllOrders, tomorrowAllOrders]);
 
   const decks: Record<OrdersTab, DashboardOrder[]> = {
@@ -476,6 +454,8 @@ export default function OrdersScreen() {
             </View>
           ) : null}
 
+          <DeliveryScheduleBanner order={item} now={now} />
+
           <View className="flex-row items-start justify-between mb-2">
             <View className="flex-row items-start flex-1 mr-3 min-w-0">
               <View className="w-14 h-14 rounded-2xl overflow-hidden bg-blue-50 items-center justify-center mr-3">
@@ -505,19 +485,6 @@ export default function OrdersScreen() {
             <View className="px-2.5 py-1 rounded-full" style={{ backgroundColor: getStatusColor(item.status) + '15' }}>
               <Text className="text-xs font-semibold capitalize" style={{ color: getStatusColor(item.status) }}>
                 {item.status}
-              </Text>
-            </View>
-          </View>
-
-          <View className="flex-row flex-wrap mb-2">
-            <View className="px-2.5 py-1 rounded-full mr-2 mb-1" style={{ backgroundColor: '#EDE9FE' }}>
-              <Text className="text-[11px] font-extrabold" style={{ color: '#5B21B6' }}>
-                DATE: {formatOrderDate(item)}
-              </Text>
-            </View>
-            <View className="px-2.5 py-1 rounded-full mb-1" style={{ backgroundColor: '#DBEAFE' }}>
-              <Text className="text-[11px] font-extrabold" style={{ color: '#1D4ED8' }}>
-                SLOT: {formatSlotLabel(item.slot)}
               </Text>
             </View>
           </View>

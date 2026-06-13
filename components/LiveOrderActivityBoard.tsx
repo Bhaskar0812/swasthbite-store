@@ -25,6 +25,7 @@ import {
   isPreparingStatus,
   sortActiveOrdersForBoard,
 } from "utils/orderActivity";
+import DeliveryScheduleBanner from "components/DeliveryScheduleBanner";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CARD_WIDTH = SCREEN_WIDTH - 56;
@@ -119,6 +120,10 @@ const OrderActivityCard = ({
         ) : null}
       </View>
 
+      {!instant ? (
+        <DeliveryScheduleBanner order={order} now={now} compact />
+      ) : null}
+
       <Text className="text-base font-extrabold text-slate-900" numberOfLines={2}>
         {getOrderTitle(order)}
       </Text>
@@ -134,7 +139,7 @@ const OrderActivityCard = ({
         </View>
         <View className="px-2 py-1 rounded-full mb-1" style={{ backgroundColor: "#fff" }}>
           <Text className="text-[10px] font-bold text-slate-700">
-            {instant ? "Instant" : `Slot ${formatSlotLabel(order.slot)}`}
+            {instant ? "Instant" : formatSlotLabel(order.slot)}
           </Text>
         </View>
       </View>

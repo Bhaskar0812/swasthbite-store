@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -20,18 +20,28 @@ import { useSyncPushToken } from 'hooks/useSyncPushToken';
 import { registerForPushNotifications } from 'services/pushNotificationService';
 import AnimatedSplash from 'components/AnimatedSplash';
 import Toast from 'react-native-toast-message';
+import { debouncedDashboardRefresh } from 'utils/dashboardRefresh';
 import '../global.css';
+
+const handledOrderAlertAt = new Map<string, number>();
+const ORDER_ALERT_DEDUPE_MS = 10000;
 
 SplashScreen.preventAutoHideAsync();
 
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
+  handleNotification: async (notification) => {
+    const data = notification?.request?.content?.data as Record<string, any> | undefined;
+    const type = String(data?.type || '').toLowerCase();
+    const isSilentSticky = type === 'ongoing_next_order' || data?.silent === true;
+
+    return {
+      shouldShowAlert: !isSilentSticky,
+      shouldPlaySound: !isSilentSticky,
+      shouldSetBadge: true,
+      shouldShowBanner: !isSilentSticky,
+      shouldShowList: true,
+    };
+  },
 });
 
 export default function RootLayout() {
@@ -43,9 +53,35 @@ export default function RootLayout() {
   const [showSplash, setShowSplash] = useState(true);
   const [appReady, setAppReady] = useState(false);
   const dashboard = useStoreStore((s) => s.dashboard);
+  const appStateRef = useRef(AppState.currentState);
+
+  const queueDashboardRefresh = () => {
+    debouncedDashboardRefresh(() => fetchDashboard(), 800);
+  };
+
+  const shouldHandleOrderAlert = (orderId: string) => {
+    const normalized = String(orderId || '').trim();
+    if (!normalized) return true;
+    const now = Date.now();
+    const last = handledOrderAlertAt.get(normalized) || 0;
+    if (now - last < ORDER_ALERT_DEDUPE_MS) return false;
+    handledOrderAlertAt.set(normalized, now);
+    return true;
+  };
 
   // Sync push token with backend whenever authenticated
   useSyncPushToken();
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      appStateRef.current = nextState;
+      if (nextState === 'active') {
+        Notifications.setBadgeCountAsync(0).catch(() => null);
+      }
+    });
+    Notifications.setBadgeCountAsync(0).catch(() => null);
+    return () => sub.remove();
+  }, []);
 
   useEffect(() => {
     async function prepare() {
@@ -80,8 +116,13 @@ export default function RootLayout() {
 
       const eventType = String(data.type || data.event || '').toLowerCase();
       if (eventType === 'order_new' || eventType === 'order:new') {
+        const orderId = String(
+          data.orderId || data.order_id || data.subscription_id || '',
+        ).trim();
+        if (!shouldHandleOrderAlert(orderId)) return;
+
         alertIncomingOrder(data, dashboard).catch(() => null);
-        fetchDashboard().catch(() => null);
+        queueDashboardRefresh();
         fetchUnreadCount().catch(() => null);
       }
     });
@@ -124,59 +165,30 @@ export default function RootLayout() {
     if (!socket) return;
 
     const refreshStoreState = async (title: string, message: string) => {
-      Toast.show({
-        type: 'success',
-        text1: title,
-        text2: message,
-        position: 'top',
-      });
-      await Promise.all([fetchDashboard(), fetchUnreadCount()]);
-    };
-
-    const ensureOrdersChannel = async () => {
-      if (Platform.OS !== 'android') return;
-      await Notifications.setNotificationChannelAsync('orders', {
-        name: 'Orders',
-        importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 400, 250, 400, 250, 400],
-        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-        sound: 'default',
-        bypassDnd: true,
-      });
-    };
-
-    const presentOrderStatusNotification = async (payload: any, fallbackTitle: string) => {
-      const normalized = normalizeIncomingOrderPayload(payload);
-      const orderId = normalized?.orderId || String(payload?.order_id ?? payload?.subscription_id ?? '').trim();
-      const rawStatus = String(payload?.status || payload?.delivery_status || '').trim();
-      const statusLabel = rawStatus ? rawStatus.replaceAll('_', ' ') : 'updated';
-
-      await ensureOrdersChannel();
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: fallbackTitle,
-          body: orderId
-            ? `Order #${orderId.slice(-6).toUpperCase()} is now ${statusLabel}`
-            : `Order is now ${statusLabel}`,
-          sound: 'default',
-          data: { orderId },
-          ...(Platform.OS === 'android'
-            ? {
-              channelId: 'orders',
-              priority: Notifications.AndroidNotificationPriority.HIGH,
-            }
-            : {}),
-        },
-        trigger: null,
-      });
+      if (appStateRef.current === 'active') {
+        Toast.show({
+          type: 'success',
+          text1: title,
+          text2: message,
+          position: 'top',
+        });
+      }
+      queueDashboardRefresh();
+      fetchUnreadCount().catch(() => null);
     };
 
     const onNewOrder = (payload: any) => {
+      const normalized = normalizeIncomingOrderPayload(payload);
+      const orderId = normalized?.orderId || '';
+      if (!shouldHandleOrderAlert(orderId)) {
+        queueDashboardRefresh();
+        return;
+      }
+
       alertIncomingOrder(payload, dashboard).catch((error) => {
         console.error('Failed to present new order notification', error);
       });
 
-      const normalized = normalizeIncomingOrderPayload(payload);
       refreshStoreState(
         normalized?.deliveryMode === 'instant' ? 'Instant order received' : 'New order received',
         normalized
@@ -187,10 +199,6 @@ export default function RootLayout() {
 
     const onOrderUpdated = (payload: any) => {
       handleIncomingOrderStatusChange(payload, dashboard).catch(() => null);
-
-      presentOrderStatusNotification(payload, 'Order status updated').catch((error) => {
-        console.error('Failed to present order status notification', error);
-      });
 
       refreshStoreState(
         'Order updated',
@@ -218,10 +226,7 @@ export default function RootLayout() {
     };
 
     const onDeliveryStatus = (payload: any) => {
-      presentOrderStatusNotification(payload, 'Delivery status updated').catch((error) => {
-        console.error('Failed to present delivery status notification', error);
-      });
-
+      handleIncomingOrderStatusChange(payload, dashboard).catch(() => null);
       refreshStoreState(
         'Delivery updated',
         payload?.status
@@ -242,20 +247,18 @@ export default function RootLayout() {
     socket.on('order:new', onNewOrder);
     socket.on('order:updated', onOrderUpdated);
     socket.on('order:cancelled', onOrderCancelled);
-    socket.on('delivery:updated', onOrderUpdated);
     socket.on('delivery:status', onDeliveryStatus);
     socket.on('delivery:rescheduled', onDeliveryRescheduled);
     socket.on('store:toggled', onStoreToggled);
 
     socket.on('connect', () => {
-      fetchDashboard();
+      queueDashboardRefresh();
     });
 
     return () => {
       socket.off('order:new', onNewOrder);
       socket.off('order:updated', onOrderUpdated);
       socket.off('order:cancelled', onOrderCancelled);
-      socket.off('delivery:updated', onOrderUpdated);
       socket.off('delivery:status', onDeliveryStatus);
       socket.off('delivery:rescheduled', onDeliveryRescheduled);
       socket.off('store:toggled', onStoreToggled);
@@ -268,7 +271,7 @@ export default function RootLayout() {
 
     const intervalId = setInterval(() => {
       fetchDashboard();
-    }, 45000);
+    }, 20000);
 
     return () => {
       clearInterval(intervalId);
@@ -280,18 +283,10 @@ export default function RootLayout() {
 
     const timerId = setInterval(() => {
       tickOngoingOrderActivity(dashboard).catch(() => null);
-    }, 15000);
+    }, 1000);
 
     return () => clearInterval(timerId);
   }, [token, dashboard]);
-
-  useEffect(() => {
-    Notifications.setBadgeCountAsync(0);
-    const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') Notifications.setBadgeCountAsync(0);
-    });
-    return () => sub.remove();
-  }, []);
 
   return (
     <>
