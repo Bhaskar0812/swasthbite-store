@@ -319,6 +319,25 @@ export const storeService = {
     const res = await api.post(`/store/orders/${id}/cancel`, { refund_option });
     return res.data;
   },
+  markBulkOrderNoted: async (id: string) => {
+    const res = await api.post(`/store/bulk-orders/${id}/noted`);
+    return res.data;
+  },
+  quoteBulkInquiry: async (
+    id: string,
+    data: {
+      line_items: Array<{
+        name: string;
+        description?: string;
+        quantity: number;
+        unit_price: number;
+      }>;
+      notes?: string;
+    },
+  ) => {
+    const res = await api.post(`/store/bulk-inquiries/${id}/quote`, data);
+    return res.data;
+  },
   getLocationRequests: async () => {
     const res = await api.get("/store/location-requests");
     return res.data;

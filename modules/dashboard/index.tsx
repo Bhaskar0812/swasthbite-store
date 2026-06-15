@@ -19,6 +19,8 @@ import { storeService } from 'services/storeService';
 import { transitionAcceptedOrder } from 'services/incomingOrderAlertService';
 import PartnerOrderQueue from 'components/PartnerOrderQueue';
 import DeliveryScheduleBanner from 'components/DeliveryScheduleBanner';
+import PendingBulkOrdersBanner from 'components/PendingBulkOrdersBanner';
+import PendingBulkInquiriesBanner from 'components/PendingBulkInquiriesBanner';
 import {
   isHiddenStoreDelivery,
   sortStoreOrdersByDateAndSlot,
@@ -390,6 +392,22 @@ export default function DashboardScreen() {
               <Text className="text-[10px] font-bold text-white">Instant</Text>
             </View>
           ) : null}
+          {(order as any)?.is_bulk_order ? (
+            <View
+              style={{
+                position: 'absolute',
+                top: order.delivery_mode === 'instant' ? 36 : 12,
+                right: 16,
+                backgroundColor: '#F59E0B',
+                paddingHorizontal: 10,
+                paddingVertical: 4,
+                borderRadius: 999,
+                zIndex: 1,
+              }}
+            >
+              <Text className="text-[10px] font-bold text-white">Bulk</Text>
+            </View>
+          ) : null}
           <View className="flex-row items-stretch">
             <View className="w-1.5 rounded-full mr-3" style={{ backgroundColor: Colors.info }} />
 
@@ -554,6 +572,16 @@ export default function DashboardScreen() {
           getOrderImage={getOrderImage}
           getOrderAddress={getOrderAddress}
           nextActions={dashboardNextActions}
+        />
+
+        <PendingBulkInquiriesBanner
+          inquiries={dashboard?.pending_bulk_inquiries || []}
+          onUpdated={fetchDashboard}
+        />
+
+        <PendingBulkOrdersBanner
+          orders={dashboard?.pending_bulk_orders || []}
+          onNoted={fetchDashboard}
         />
 
         {/* Quick Stats */}

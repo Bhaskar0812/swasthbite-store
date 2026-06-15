@@ -24,6 +24,49 @@ export type OnboardingStatus = {
   commission_rate?: number;
 };
 
+export type PendingBulkOrder = {
+  order_id: string;
+  package_name: string;
+  customer_name: string;
+  customer_phone: string;
+  headcount: number;
+  delivery_date?: string | null;
+  delivery_slot?: string;
+  total_amount: number;
+  paid_amount: number;
+  due_amount: number;
+  payment_status: string;
+  source?: string;
+  created_at?: string;
+  line_items?: Array<{
+    name?: string;
+    portion_label?: string;
+    serving_count?: number;
+    line_total?: number;
+  }>;
+  special_requirements?: string;
+};
+
+export type PendingBulkInquiry = {
+  _id: string;
+  inquiry_number: string;
+  status: string;
+  headcount: number;
+  delivery_date?: string | null;
+  delivery_slot?: string;
+  requirements: string;
+  contact_note?: string;
+  customer_name: string;
+  customer_phone: string;
+  address_snapshot?: {
+    label?: string;
+    full_address?: string;
+    city?: string;
+    pincode?: string;
+  };
+  created_at?: string;
+};
+
 export type DashboardData = {
   onboarding: OnboardingStatus;
   bank_account_added: boolean;
@@ -31,6 +74,8 @@ export type DashboardData = {
   pending_penalty_amount: number;
   pending_settlement_amount: number;
   recent_settlements: Settlement[];
+  pending_bulk_orders?: PendingBulkOrder[];
+  pending_bulk_inquiries?: PendingBulkInquiry[];
   today_orders: DashboardOrder[];
   tomorrow_orders: DashboardOrder[];
   delivered_orders?: DashboardOrder[];
@@ -56,6 +101,12 @@ export type DashboardOrder = {
   delivery_mode?: "scheduled" | "instant";
   instant_deadline_at?: string | null;
   createdAt?: string;
+  is_bulk_order?: boolean;
+  bulk_customer_details?: {
+    headcount?: number;
+    store_noted_at?: string | null;
+  } | null;
+  order_source?: string;
   delivery_note?: string;
   delivery_address?: {
     label?: string;

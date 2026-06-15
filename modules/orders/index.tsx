@@ -17,6 +17,8 @@ import type { DashboardOrder } from 'types';
 import { pickImageUrl, resolveImageUrl } from 'utils/image';
 import PartnerOrderQueue from 'components/PartnerOrderQueue';
 import DeliveryScheduleBanner from 'components/DeliveryScheduleBanner';
+import PendingBulkOrdersBanner from 'components/PendingBulkOrdersBanner';
+import PendingBulkInquiriesBanner from 'components/PendingBulkInquiriesBanner';
 import {
   formatCountdown,
   formatStatusLabel,
@@ -584,6 +586,16 @@ export default function OrdersScreen() {
             getOrderTitle={getOrderTitle}
             getOrderImage={getOrderImage}
             getOrderAddress={getOrderAddress}
+          />
+
+          <PendingBulkInquiriesBanner
+            inquiries={dashboard?.pending_bulk_inquiries || []}
+            onUpdated={fetchDashboard}
+          />
+
+          <PendingBulkOrdersBanner
+            orders={dashboard?.pending_bulk_orders || []}
+            onNoted={fetchDashboard}
           />
         </View>
 
