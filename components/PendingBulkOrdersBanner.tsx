@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors } from 'constants/theme';
 import { storeService } from 'services/storeService';
 import { getBulkPaymentMeta, formatBulkDeliveryLabel } from 'utils/bulkOrderPayment';
+import { resolveBulkOrderId } from 'utils/bulkOrderUtils';
 import type { PendingBulkOrder } from 'types';
 
 type Props = {
@@ -29,8 +30,11 @@ export default function PendingBulkOrdersBanner({ orders, onNoted }: Props) {
   if (!orders.length) return null;
 
   const handleMarkNoted = async (order: PendingBulkOrder) => {
-    const orderId = String(order.order_id || '').trim();
-    if (!orderId) return;
+    const orderId = resolveBulkOrderId(order);
+    if (!orderId) {
+      Alert.alert('Could not update', 'Order reference missing. Please refresh and try again.');
+      return;
+    }
 
     Alert.alert(
       'Mark as noted?',
@@ -68,7 +72,7 @@ export default function PendingBulkOrdersBanner({ orders, onNoted }: Props) {
       </View>
 
       {orders.map((order) => {
-        const orderId = String(order.order_id || '').trim();
+        const orderId = resolveBulkOrderId(order);
         const isMarking = markingId === orderId;
         const paymentMeta = getBulkPaymentMeta(order);
 

@@ -323,6 +323,14 @@ export const storeService = {
     const res = await api.post(`/store/bulk-orders/${id}/noted`);
     return res.data;
   },
+  getBulkOrders: async () => {
+    const res = await api.get('/store/bulk-orders');
+    return res.data;
+  },
+  getBulkInquiries: async () => {
+    const res = await api.get('/store/bulk-inquiries');
+    return res.data;
+  },
   getBulkOrderDetail: async (id: string) => {
     const res = await api.get(`/store/bulk-orders/${id}`);
     return res.data;

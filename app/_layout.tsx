@@ -142,7 +142,7 @@ export default function RootLayout() {
             Toast.show({
               type: 'info',
               text1: content?.title || (eventType.includes('inquiry') ? 'New bulk inquiry' : 'Bulk order confirmed'),
-              text2: String(content?.body || 'Open Bulk tab in Orders'),
+              text2: String(content?.body || 'Open Bulk tab'),
               position: 'top',
             });
           }
@@ -170,7 +170,7 @@ export default function RootLayout() {
         type === 'bulk_inquiry:new' ||
         data?.tab === 'bulk'
       ) {
-        router.push('/(tabs)/orders?tab=bulk' as any);
+        router.push('/(tabs)/bulk' as any);
         return;
       }
 
