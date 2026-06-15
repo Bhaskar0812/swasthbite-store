@@ -120,8 +120,35 @@ export default function RootLayout() {
       const data = notification?.request?.content?.data as Record<string, any> | undefined;
       if (!data) return;
 
+      const content = notification?.request?.content;
       const eventType = String(data.type || data.event || '').toLowerCase();
-      if (eventType === 'order_new' || eventType === 'order:new') {
+      if (
+        eventType === 'order_new' ||
+        eventType === 'order:new' ||
+        eventType === 'bulk_order_confirmed' ||
+        eventType === 'bulk_order:confirmed' ||
+        eventType === 'bulk_inquiry_new' ||
+        eventType === 'bulk_inquiry:new'
+      ) {
+        if (
+          eventType === 'bulk_order_confirmed' ||
+          eventType === 'bulk_order:confirmed' ||
+          eventType === 'bulk_inquiry_new' ||
+          eventType === 'bulk_inquiry:new'
+        ) {
+          queueDashboardRefresh();
+          fetchUnreadCount().catch(() => null);
+          if (appStateRef.current === 'active') {
+            Toast.show({
+              type: 'info',
+              text1: content?.title || (eventType.includes('inquiry') ? 'New bulk inquiry' : 'Bulk order confirmed'),
+              text2: String(content?.body || 'Open Bulk tab in Orders'),
+              position: 'top',
+            });
+          }
+          return;
+        }
+
         const orderId = String(
           data.orderId || data.order_id || data.subscription_id || '',
         ).trim();
@@ -135,7 +162,17 @@ export default function RootLayout() {
 
     const responseSub = Notifications.addNotificationResponseReceivedListener(async (response) => {
       const data = response?.notification?.request?.content?.data as Record<string, any> | undefined;
-      const type = String(data?.type || '').toLowerCase();
+      const type = String(data?.type || data?.event || '').toLowerCase();
+      if (
+        type === 'bulk_order_confirmed' ||
+        type === 'bulk_order:confirmed' ||
+        type === 'bulk_inquiry_new' ||
+        type === 'bulk_inquiry:new' ||
+        data?.tab === 'bulk'
+      ) {
+        router.push('/(tabs)/orders?tab=bulk' as any);
+        return;
+      }
 
       const handled = await handlePartnerNotificationResponse(response, {
         dashboard,
@@ -212,6 +249,29 @@ export default function RootLayout() {
     };
 
     const onNewOrder = (payload: any) => {
+      const isBulkOrder =
+        String(payload?.type || '').toLowerCase() === 'bulk_order' ||
+        payload?.subscription?.is_bulk_order === true;
+
+      if (isBulkOrder) {
+        const sub = payload?.subscription || {};
+        const customerName =
+          payload?.user?.name || sub?.user?.name || 'Customer';
+        const deliveryDate = sub?.delivery_dates?.[0]?.date;
+        const dateLabel = deliveryDate
+          ? new Date(deliveryDate).toLocaleDateString('en-IN', {
+              weekday: 'short',
+              day: 'numeric',
+              month: 'short',
+            })
+          : 'Date TBD';
+        refreshStoreState(
+          'Bulk order confirmed',
+          `${customerName} · ${dateLabel} · Check Bulk tab`,
+        );
+        return;
+      }
+
       const normalized = normalizeIncomingOrderPayload(payload);
       const orderId = normalized?.orderId || '';
       if (!shouldHandleOrderAlert(orderId)) {
@@ -278,7 +338,17 @@ export default function RootLayout() {
       });
     };
 
+    const onBulkInquiry = (payload: any) => {
+      refreshStoreState(
+        'New bulk inquiry',
+        payload?.inquiry_number
+          ? `${payload.inquiry_number} · ${payload.headcount || '?'} people`
+          : 'A customer submitted a custom bulk request',
+      );
+    };
+
     socket.on('order:new', onNewOrder);
+    socket.on('bulk_inquiry:new', onBulkInquiry);
     socket.on('order:updated', onOrderUpdated);
     socket.on('order:cancelled', onOrderCancelled);
     socket.on('delivery:status', onDeliveryStatus);
@@ -291,6 +361,7 @@ export default function RootLayout() {
 
     return () => {
       socket.off('order:new', onNewOrder);
+      socket.off('bulk_inquiry:new', onBulkInquiry);
       socket.off('order:updated', onOrderUpdated);
       socket.off('order:cancelled', onOrderCancelled);
       socket.off('delivery:status', onDeliveryStatus);

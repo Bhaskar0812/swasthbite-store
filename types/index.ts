@@ -26,18 +26,36 @@ export type OnboardingStatus = {
 
 export type PendingBulkOrder = {
   order_id: string;
+  order_number?: string;
   package_name: string;
   customer_name: string;
   customer_phone: string;
   headcount: number;
   delivery_date?: string | null;
   delivery_slot?: string;
+  delivery_time?: string;
+  delivery_slot_label?: string;
   total_amount: number;
   paid_amount: number;
   due_amount: number;
   payment_status: string;
+  payment_confirmed?: boolean;
+  advance_amount?: number;
+  balance_amount?: number;
+  balance_due_at?: string | null;
+  advance_payment_id?: string | null;
   source?: string;
   created_at?: string;
+  delivery_address?: string;
+  is_noted?: boolean;
+  store_noted_at?: string | null;
+  inquiry_number?: string;
+  address_snapshot?: {
+    label?: string;
+    full_address?: string;
+    city?: string;
+    pincode?: string;
+  };
   line_items?: Array<{
     name?: string;
     portion_label?: string;
@@ -45,6 +63,7 @@ export type PendingBulkOrder = {
     line_total?: number;
   }>;
   special_requirements?: string;
+  store_quote_notes?: string;
 };
 
 export type PendingBulkInquiry = {
@@ -54,6 +73,7 @@ export type PendingBulkInquiry = {
   headcount: number;
   delivery_date?: string | null;
   delivery_slot?: string;
+  delivery_time?: string;
   requirements: string;
   contact_note?: string;
   customer_name: string;
@@ -75,6 +95,8 @@ export type DashboardData = {
   pending_settlement_amount: number;
   recent_settlements: Settlement[];
   pending_bulk_orders?: PendingBulkOrder[];
+  confirmed_bulk_orders?: PendingBulkOrder[];
+  awaiting_payment_bulk_orders?: PendingBulkOrder[];
   pending_bulk_inquiries?: PendingBulkInquiry[];
   today_orders: DashboardOrder[];
   tomorrow_orders: DashboardOrder[];

@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, ActivityIndicator, Alert, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from 'constants/theme';
 import { storeService } from 'services/storeService';
+import { getBulkPaymentMeta, formatBulkDeliveryLabel } from 'utils/bulkOrderPayment';
 import type { PendingBulkOrder } from 'types';
 
 type Props = {
@@ -69,6 +70,7 @@ export default function PendingBulkOrdersBanner({ orders, onNoted }: Props) {
       {orders.map((order) => {
         const orderId = String(order.order_id || '').trim();
         const isMarking = markingId === orderId;
+        const paymentMeta = getBulkPaymentMeta(order);
 
         return (
           <View
@@ -91,29 +93,50 @@ export default function PendingBulkOrdersBanner({ orders, onNoted }: Props) {
               </View>
               <View
                 className="px-2.5 py-1 rounded-full"
-                style={{ backgroundColor: '#FEF3C7' }}
+                style={{ backgroundColor: paymentMeta.bg }}
               >
-                <Text className="text-[10px] font-bold uppercase" style={{ color: '#92400E' }}>
-                  {order.payment_status || 'pending'}
+                <Text className="text-[10px] font-bold uppercase" style={{ color: paymentMeta.color }}>
+                  {paymentMeta.label}
                 </Text>
               </View>
             </View>
 
             <View className="flex-row items-center mb-1">
               <Ionicons name="calendar-outline" size={15} color="#92400E" />
-              <Text className="text-sm font-semibold ml-2" style={{ color: '#78350F' }}>
-                {formatDate(order.delivery_date)} · {String(order.delivery_slot || 'lunch')}
+              <Text className="text-sm font-semibold ml-2 flex-1" style={{ color: '#78350F' }}>
+                {formatDate(order.delivery_date)} · {formatBulkDeliveryLabel(order)}
               </Text>
             </View>
 
-            <Text className="text-sm text-textSecondary mt-1">
-              {order.customer_name} · {order.customer_phone}
-            </Text>
-            <Text className="text-sm font-semibold mt-1" style={{ color: '#92400E' }}>
-              {order.headcount || 0} people · Paid ₹{Number(order.paid_amount || 0).toLocaleString('en-IN')}
-              {Number(order.due_amount || 0) > 0
-                ? ` · Due ₹${Number(order.due_amount).toLocaleString('en-IN')}`
-                : ''}
+            <View className="flex-row items-center mt-1">
+              <Text className="text-sm text-textSecondary flex-1">
+                {order.customer_name}
+              </Text>
+              {order.customer_phone ? (
+                <TouchableOpacity
+                  onPress={() => Linking.openURL(`tel:${String(order.customer_phone).replace(/\s+/g, '')}`).catch(() => null)}
+                  className="flex-row items-center px-2 py-1 rounded-lg"
+                  style={{ backgroundColor: '#FEF3C7' }}
+                >
+                  <Ionicons name="call-outline" size={14} color="#B45309" />
+                  <Text className="text-xs font-bold ml-1" style={{ color: '#92400E' }}>
+                    {order.customer_phone}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+
+            {order.delivery_address || order.address_snapshot?.full_address ? (
+              <View className="flex-row items-start mt-2 bg-white/60 rounded-xl px-3 py-2">
+                <Ionicons name="location-outline" size={14} color="#92400E" style={{ marginTop: 1 }} />
+                <Text className="text-xs ml-2 flex-1" style={{ color: '#78350F' }} numberOfLines={2}>
+                  {order.delivery_address || order.address_snapshot?.full_address}
+                </Text>
+              </View>
+            ) : null}
+
+            <Text className="text-sm font-semibold mt-2" style={{ color: '#92400E' }}>
+              {order.headcount || 0} people · {paymentMeta.amountLine}
             </Text>
             {(order.line_items || []).length > 0 ? (
               <View style={{ marginTop: 8, gap: 4 }}>

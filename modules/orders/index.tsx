@@ -10,7 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Colors } from 'constants/theme';
 import { useStoreStore } from 'store/storeStore';
 import type { DashboardOrder } from 'types';
@@ -19,6 +19,7 @@ import PartnerOrderQueue from 'components/PartnerOrderQueue';
 import DeliveryScheduleBanner from 'components/DeliveryScheduleBanner';
 import PendingBulkOrdersBanner from 'components/PendingBulkOrdersBanner';
 import PendingBulkInquiriesBanner from 'components/PendingBulkInquiriesBanner';
+import BulkOrdersPanel from 'components/BulkOrdersPanel';
 import {
   formatCountdown,
   formatStatusLabel,
@@ -28,20 +29,21 @@ import {
   sortStoreOrdersByDateAndSlot,
 } from 'utils/orderActivity';
 
-type OrdersTab = 'today' | 'tomorrow' | 'delivered';
+type OrdersTab = 'today' | 'tomorrow' | 'delivered' | 'bulk';
 
 export default function OrdersScreen() {
   const { dashboard, packages, loading, fetchDashboard, fetchPackages } = useStoreStore();
+  const { tab: tabParam } = useLocalSearchParams<{ tab?: string }>();
 
   const [activeTab, setActiveTab] = useState<OrdersTab>('today');
-  const [activeIndexes, setActiveIndexes] = useState<Record<OrdersTab, number>>({
+  const [activeIndexes, setActiveIndexes] = useState<Record<Exclude<OrdersTab, 'bulk'>, number>>({
     today: 0,
     tomorrow: 0,
     delivered: 0,
   });
   const [now, setNow] = useState(Date.now());
 
-  const selectedByTabRef = useRef<Record<OrdersTab, string>>({
+  const selectedByTabRef = useRef<Record<Exclude<OrdersTab, 'bulk'>, string>>({
     today: '',
     tomorrow: '',
     delivered: '',
@@ -56,7 +58,10 @@ export default function OrdersScreen() {
   useFocusEffect(
     useCallback(() => {
       fetchDashboard();
-    }, [fetchDashboard]),
+      if (String(tabParam || '').toLowerCase() === 'bulk') {
+        setActiveTab('bulk');
+      }
+    }, [fetchDashboard, tabParam]),
   );
 
   useEffect(() => {
@@ -193,13 +198,21 @@ export default function OrdersScreen() {
     return sortOrders(source.filter((item) => isDeliveredOrder(item)), 'desc');
   }, [dashboard?.delivered_orders, todayAllOrders, tomorrowAllOrders]);
 
-  const decks: Record<OrdersTab, DashboardOrder[]> = {
+  const decks: Record<Exclude<OrdersTab, 'bulk'>, DashboardOrder[]> = {
     today: todaySliderOrders,
     tomorrow: tomorrowSliderOrders,
     delivered: deliveredSliderOrders,
   };
 
-  const syncTabIndex = (tab: OrdersTab, deck: DashboardOrder[]) => {
+  const confirmedBulkOrders = dashboard?.confirmed_bulk_orders || dashboard?.pending_bulk_orders || [];
+  const awaitingBulkOrders = dashboard?.awaiting_payment_bulk_orders || [];
+  const bulkInquiries = dashboard?.pending_bulk_inquiries || [];
+  const bulkTabCount =
+    confirmedBulkOrders.length +
+    awaitingBulkOrders.length +
+    bulkInquiries.filter((item) => item.status === 'submitted').length;
+
+  const syncTabIndex = (tab: Exclude<OrdersTab, 'bulk'>, deck: DashboardOrder[]) => {
     if (!deck.length) {
       setActiveIndexes((prev) => ({ ...prev, [tab]: 0 }));
       selectedByTabRef.current[tab] = '';
@@ -257,9 +270,9 @@ export default function OrdersScreen() {
     syncTabIndex('delivered', deliveredSliderOrders);
   }, [deliveredDeckKey, todayDateLabel]);
 
-  const activeDeck = decks[activeTab];
+  const activeDeck = activeTab === 'bulk' ? [] : decks[activeTab];
   const activeDeckLength = activeDeck.length;
-  const rawIndex = activeIndexes[activeTab] || 0;
+  const rawIndex = activeTab === 'bulk' ? 0 : activeIndexes[activeTab] || 0;
   const normalizedActiveIndex = activeDeckLength
     ? ((rawIndex % activeDeckLength) + activeDeckLength) % activeDeckLength
     : 0;
@@ -545,6 +558,7 @@ export default function OrdersScreen() {
   const tabs: Array<{ key: OrdersTab; label: string; count: number }> = [
     { key: 'today', label: 'Today', count: todaySliderOrders.length },
     { key: 'tomorrow', label: 'Tomorrow', count: tomorrowSliderOrders.length },
+    { key: 'bulk', label: 'Bulk', count: bulkTabCount },
     { key: 'delivered', label: 'Delivered', count: deliveredSliderOrders.length },
   ];
 
@@ -589,36 +603,49 @@ export default function OrdersScreen() {
           />
 
           <PendingBulkInquiriesBanner
-            inquiries={dashboard?.pending_bulk_inquiries || []}
+            inquiries={bulkInquiries.filter((item) => item.status === 'submitted').slice(0, 1)}
             onUpdated={fetchDashboard}
           />
 
           <PendingBulkOrdersBanner
-            orders={dashboard?.pending_bulk_orders || []}
+            orders={(dashboard?.pending_bulk_orders || []).slice(0, 1)}
             onNoted={fetchDashboard}
           />
         </View>
 
         <View className="mx-4 mb-3 rounded-xl px-2 py-2" style={{ backgroundColor: '#EAF0FF' }}>
-          <View className="flex-row">
-            {tabs.map((tab) => {
-              const active = activeTab === tab.key;
-              return (
-                <TouchableOpacity
-                  key={tab.key}
-                  onPress={() => setActiveTab(tab.key)}
-                  className="flex-1 h-10 rounded-lg items-center justify-center mx-1"
-                  style={{ backgroundColor: active ? '#DBEAFE' : 'transparent' }}
-                >
-                  <Text className="text-sm font-bold" style={{ color: active ? '#1D4ED8' : '#475569' }}>
-                    {tab.label} {tab.count}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View className="flex-row">
+              {tabs.map((tab) => {
+                const active = activeTab === tab.key;
+                return (
+                  <TouchableOpacity
+                    key={tab.key}
+                    onPress={() => setActiveTab(tab.key)}
+                    className="h-10 rounded-lg items-center justify-center mx-1 px-4"
+                    style={{ backgroundColor: active ? '#DBEAFE' : 'transparent', minWidth: 88 }}
+                  >
+                    <Text className="text-sm font-bold" style={{ color: active ? '#1D4ED8' : '#475569' }}>
+                      {tab.label} {tab.count}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </ScrollView>
         </View>
 
+        {activeTab === 'bulk' ? (
+          <View className="mx-4 mb-4">
+            <BulkOrdersPanel
+              orders={confirmedBulkOrders}
+              awaitingOrders={awaitingBulkOrders}
+              inquiries={bulkInquiries}
+              onUpdated={fetchDashboard}
+            />
+          </View>
+        ) : (
+          <>
         <View style={{ minHeight: 440, justifyContent: 'center', marginBottom: 8 }}>
           {renderOrderCard(currentOrder)}
         </View>
@@ -646,6 +673,8 @@ export default function OrdersScreen() {
             <Ionicons name="arrow-forward" size={22} color="#2563EB" />
           </TouchableOpacity>
         </View>
+          </>
+        )}
       </ScrollView>
     </SafeAreaView>
   );

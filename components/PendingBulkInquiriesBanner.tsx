@@ -10,8 +10,10 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Toast from 'react-native-toast-message';
 import { Colors } from 'constants/theme';
 import { storeService } from 'services/storeService';
 import type { PendingBulkInquiry } from 'types';
@@ -39,6 +41,71 @@ const formatDate = (value?: string | null) => {
     year: 'numeric',
   });
 };
+
+const formatInquiryDelivery = (inquiry: PendingBulkInquiry) => {
+  const slot = String(inquiry.delivery_slot || 'lunch');
+  const slotLabel = slot.charAt(0).toUpperCase() + slot.slice(1);
+  const time = String(inquiry.delivery_time || '').trim();
+  return time ? `${slotLabel} · ${time}` : slotLabel;
+};
+
+const CustomerRequirementsCard = ({ inquiry }: { inquiry: PendingBulkInquiry }) => (
+  <View style={{ backgroundColor: '#EFF6FF', borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: '#BFDBFE' }}>
+    <Text style={{ fontSize: 13, fontWeight: '800', color: '#1D4ED8', marginBottom: 10 }}>
+      Customer Request — Quote Based On This
+    </Text>
+
+    <Text style={{ fontSize: 11, fontWeight: '700', color: '#64748B', textTransform: 'uppercase' }}>Customer</Text>
+    <Text style={{ fontSize: 14, fontWeight: '700', color: '#0F172A', marginTop: 2 }}>
+      {inquiry.customer_name}
+    </Text>
+    {inquiry.customer_phone ? (
+      <Text style={{ fontSize: 13, color: '#334155', marginTop: 2 }}>{inquiry.customer_phone}</Text>
+    ) : null}
+
+    <View style={{ height: 1, backgroundColor: '#DBEAFE', marginVertical: 10 }} />
+
+    <Text style={{ fontSize: 11, fontWeight: '700', color: '#64748B', textTransform: 'uppercase' }}>Event</Text>
+    <Text style={{ fontSize: 13, color: '#334155', marginTop: 2 }}>
+      {inquiry.headcount} people · {formatDate(inquiry.delivery_date)} · {formatInquiryDelivery(inquiry)}
+    </Text>
+
+    {inquiry.address_snapshot?.full_address ? (
+      <>
+        <Text style={{ fontSize: 11, fontWeight: '700', color: '#64748B', textTransform: 'uppercase', marginTop: 10 }}>
+          Delivery Address
+        </Text>
+        <Text style={{ fontSize: 13, color: '#334155', marginTop: 2 }}>
+          {inquiry.address_snapshot.full_address}
+        </Text>
+      </>
+    ) : null}
+
+    <Text style={{ fontSize: 11, fontWeight: '700', color: '#64748B', textTransform: 'uppercase', marginTop: 10 }}>
+      What Customer Needs
+    </Text>
+    <Text style={{ fontSize: 14, color: '#0F172A', marginTop: 4, lineHeight: 21 }}>
+      {inquiry.requirements}
+    </Text>
+
+    {inquiry.contact_note ? (
+      <>
+        <Text style={{ fontSize: 11, fontWeight: '700', color: '#64748B', textTransform: 'uppercase', marginTop: 10 }}>
+          Venue / Contact Note
+        </Text>
+        <Text style={{ fontSize: 13, color: '#475569', marginTop: 2, fontStyle: 'italic' }}>
+          {inquiry.contact_note}
+        </Text>
+      </>
+    ) : null}
+
+    <View style={{ backgroundColor: '#DBEAFE', borderRadius: 8, padding: 10, marginTop: 12 }}>
+      <Text style={{ fontSize: 12, color: '#1E3A8A', lineHeight: 18 }}>
+        Add quotation line items below for what the customer asked — e.g. dishes, packages, serving staff, cutlery.
+      </Text>
+    </View>
+  </View>
+);
 
 const emptyLine = (): QuoteLine => ({
   name: '',
@@ -106,11 +173,30 @@ export default function PendingBulkInquiriesBanner({ inquiries, onUpdated }: Pro
 
     try {
       setSubmitting(true);
-      await storeService.quoteBulkInquiry(String(selected._id), {
+      const res = await storeService.quoteBulkInquiry(String(selected._id), {
         line_items: payloadLines,
         notes: notes.trim(),
       });
-      Alert.alert('Quotation sent', 'Customer can now review and pay 50% advance.');
+      const inquiry = (res as any)?.data || res;
+      const sentTotal = Math.round(
+        Number(inquiry?.store_quote?.grand_total || quoteTotal || 0),
+      );
+      const inquiryNumber = selected.inquiry_number || '';
+
+      Toast.show({
+        type: 'success',
+        text1: 'Quotation sent successfully',
+        text2: `${inquiryNumber ? `${inquiryNumber} · ` : ''}₹${sentTotal.toLocaleString('en-IN')} shared with customer`,
+        position: 'top',
+        visibilityTime: 5000,
+      });
+
+      Alert.alert(
+        'Quotation Sent',
+        `Customer ko notification bhej di gayi hai.\n\nTotal: ₹${sentTotal.toLocaleString('en-IN')}\nAdvance 50%: ₹${Math.round(sentTotal / 2).toLocaleString('en-IN')}\n\nCustomer ab Bulk Order mein quotation dekh kar accept kar sakta hai.`,
+        [{ text: 'OK' }],
+      );
+
       closeQuote();
       onUpdated?.();
     } catch (err: any) {
@@ -139,10 +225,22 @@ export default function PendingBulkInquiriesBanner({ inquiries, onUpdated }: Pro
             Custom Bulk Inquiry · {inquiry.inquiry_number}
           </Text>
           <Text className="text-sm font-semibold mt-2" style={{ color: '#1E3A8A' }}>
-            {inquiry.customer_name} · {inquiry.customer_phone}
+            {inquiry.customer_name}
           </Text>
+          {inquiry.customer_phone ? (
+            <TouchableOpacity
+              onPress={() => Linking.openURL(`tel:${String(inquiry.customer_phone).replace(/\s+/g, '')}`).catch(() => null)}
+              className="flex-row items-center mt-1 self-start px-2 py-1 rounded-lg"
+              style={{ backgroundColor: '#DBEAFE' }}
+            >
+              <Ionicons name="call-outline" size={14} color="#1D4ED8" />
+              <Text className="text-xs font-bold ml-1" style={{ color: '#1D4ED8' }}>
+                {inquiry.customer_phone}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
           <Text className="text-sm mt-1" style={{ color: '#334155' }}>
-            {inquiry.headcount} people · {formatDate(inquiry.delivery_date)} · {inquiry.delivery_slot}
+            {inquiry.headcount} people · {formatDate(inquiry.delivery_date)} · {formatInquiryDelivery(inquiry)}
           </Text>
           {inquiry.address_snapshot?.full_address ? (
             <Text className="text-xs mt-1" style={{ color: '#64748B' }} numberOfLines={2}>
@@ -183,6 +281,11 @@ export default function PendingBulkInquiriesBanner({ inquiries, onUpdated }: Pro
             </View>
 
             <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
+              {selected ? <CustomerRequirementsCard inquiry={selected} /> : null}
+
+              <Text style={{ fontSize: 15, fontWeight: '800', color: '#1A1A1A', marginBottom: 10 }}>
+                Your Quotation Line Items
+              </Text>
               <Text style={{ fontSize: 13, color: '#666', marginBottom: 12 }}>
                 Customer pays 50% advance on acceptance. Balance due 2 hours before delivery.
               </Text>
