@@ -192,6 +192,246 @@ export const SLOT_ORDER: Record<string, number> = {
   dinner: 4,
 };
 
+export const SLOT_META: Record<
+  string,
+  { label: string; time: string; deliverBy: string; icon: string }
+> = {
+  morning: {
+    label: "Morning",
+    time: "9:30 – 10:30 AM",
+    deliverBy: "10:30 AM",
+    icon: "☀️",
+  },
+  lunch: {
+    label: "Lunch",
+    time: "12:30 – 1:30 PM",
+    deliverBy: "1:30 PM",
+    icon: "🍱",
+  },
+  evening: {
+    label: "Evening",
+    time: "5:00 – 6:00 PM",
+    deliverBy: "6:00 PM",
+    icon: "🌅",
+  },
+  dinner: {
+    label: "Dinner",
+    time: "8:00 – 9:00 PM",
+    deliverBy: "9:00 PM",
+    icon: "🌙",
+  },
+};
+
+export type DayTab = "today" | "tomorrow";
+export type SlotFilter =
+  | "all"
+  | "morning"
+  | "lunch"
+  | "evening"
+  | "dinner"
+  | "instant";
+
+export const SLOT_FILTERS: Array<{
+  key: SlotFilter;
+  label: string;
+  icon?: string;
+}> = [
+  { key: "all", label: "All" },
+  { key: "instant", label: "Instant", icon: "⚡" },
+  { key: "morning", label: "Morning", icon: "☀️" },
+  { key: "lunch", label: "Lunch", icon: "🍱" },
+  { key: "evening", label: "Evening", icon: "🌅" },
+  { key: "dinner", label: "Dinner", icon: "🌙" },
+];
+
+export const formatSlotWindow = (slot?: string) => {
+  const normalized = String(slot || "").trim().toLowerCase();
+  return SLOT_META[normalized]?.time || formatSlotLabel(slot);
+};
+
+export const formatDeliverByTime = (order: DashboardOrder) => {
+  if (isInstantOrder(order)) return "Due now";
+
+  const slot = String(order.slot || "").trim().toLowerCase();
+  const slotDeliverBy = SLOT_META[slot]?.deliverBy;
+  if (slotDeliverBy) return slotDeliverBy;
+
+  const dateTime = order.date
+    ? new Date(order.date).getTime()
+    : order.createdAt
+      ? new Date(order.createdAt).getTime()
+      : 0;
+  if (!dateTime) return formatSlotLabel(order.slot);
+
+  return new Date(dateTime).toLocaleTimeString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
+
+const parseTrailingQuantity = (value?: string) => {
+  const label = String(value || "").trim();
+  const match = label.match(/\bx\s*(\d+)\s*$/i);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : null;
+};
+
+export const getOrderQuantity = (order: DashboardOrder) => {
+  const candidates: number[] = [];
+
+  const directQty = Number((order as any)?.quantity);
+  if (Number.isFinite(directQty) && directQty > 0) {
+    candidates.push(Math.floor(directQty));
+  }
+
+  const bundleItems = Array.isArray((order as any)?.bundle_items)
+    ? (order as any).bundle_items
+    : [];
+  if (bundleItems.length) {
+    candidates.push(
+      bundleItems.reduce(
+        (sum: number, item: any) =>
+          sum +
+          Math.max(
+            1,
+            Number(item?.qty || item?.quantity) || 1,
+            parseTrailingQuantity(item?.name) || 0,
+          ),
+        0,
+      ),
+    );
+    bundleItems.forEach((item: any) => {
+      const itemQty = Number(item?.qty || item?.quantity);
+      if (Number.isFinite(itemQty) && itemQty > 0) candidates.push(Math.floor(itemQty));
+      const nameQty = parseTrailingQuantity(item?.name);
+      if (nameQty) candidates.push(nameQty);
+    });
+  }
+
+  const apiLineItems = Array.isArray((order as any)?.line_items)
+    ? (order as any).line_items
+    : [];
+  if (apiLineItems.length) {
+    candidates.push(
+      apiLineItems.reduce(
+        (sum: number, item: any) =>
+          sum + Math.max(1, Number(item?.qty ?? item?.quantity) || 1),
+        0,
+      ),
+    );
+  }
+
+  const mealName = String(order.meal_name || order.package_name || "").trim();
+  const mealQty = parseTrailingQuantity(mealName);
+  if (mealQty) candidates.push(mealQty);
+  const packageQty = parseTrailingQuantity(order.package_name);
+  if (packageQty) candidates.push(packageQty);
+
+  if (!candidates.length) return 1;
+  return Math.max(...candidates);
+};
+
+export const getDayOrders = (
+  dashboard: DashboardData | null | undefined,
+  day: DayTab,
+  options: { actionableOnly?: boolean } = {},
+) => {
+  const source =
+    day === "today"
+      ? dashboard?.today_orders || []
+      : dashboard?.tomorrow_orders || [];
+  const visible = filterVisibleStoreOrders(source);
+  if (!options.actionableOnly) return visible;
+  return visible.filter(isActionableOrder);
+};
+
+export const filterOrdersBySlot = (
+  orders: DashboardOrder[],
+  slot: SlotFilter,
+) => {
+  if (slot === "all") return orders;
+  if (slot === "instant") return orders.filter(isInstantOrder);
+  return orders.filter(
+    (order) =>
+      !isInstantOrder(order) &&
+      String(order.slot || "").trim().toLowerCase() === slot,
+  );
+};
+
+export const countOrdersBySlot = (
+  orders: DashboardOrder[],
+): Record<SlotFilter, number> => ({
+  all: orders.length,
+  instant: orders.filter(isInstantOrder).length,
+  morning: orders.filter(
+    (o) => !isInstantOrder(o) && String(o.slot).toLowerCase() === "morning",
+  ).length,
+  lunch: orders.filter(
+    (o) => !isInstantOrder(o) && String(o.slot).toLowerCase() === "lunch",
+  ).length,
+  evening: orders.filter(
+    (o) => !isInstantOrder(o) && String(o.slot).toLowerCase() === "evening",
+  ).length,
+  dinner: orders.filter(
+    (o) => !isInstantOrder(o) && String(o.slot).toLowerCase() === "dinner",
+  ).length,
+});
+
+const splitItemText = (value?: string) =>
+  String(value || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+export type OrderLineItem = { name: string; qty: number };
+
+export const getOrderLineItems = (order: DashboardOrder): OrderLineItem[] => {
+  const apiLineItems = Array.isArray((order as any)?.line_items)
+    ? (order as any).line_items
+    : [];
+  if (apiLineItems.length) {
+    return apiLineItems.map((item: any) => ({
+      name: String(item?.name || "Item").trim(),
+      qty: Math.max(1, Number(item?.qty ?? item?.quantity) || 1),
+    }));
+  }
+
+  const orderQty = getOrderQuantity(order);
+  const bundleItems = Array.isArray((order as any)?.bundle_items)
+    ? (order as any).bundle_items
+    : [];
+
+  if (bundleItems.length === 1) {
+    const item = bundleItems[0];
+    const name = String(item?.name || item?.menu_item?.name || "Item").trim();
+    const lineQty = Math.max(
+      orderQty,
+      Math.max(1, Number(item?.qty || item?.quantity) || 1),
+    );
+    return [{ name, qty: lineQty }];
+  }
+
+  if (bundleItems.length > 1) {
+    return bundleItems.map((item: any) => ({
+      name: String(item?.name || item?.menu_item?.name || "Item").trim(),
+      qty: Math.max(1, Number(item?.qty || item?.quantity) || 1),
+    }));
+  }
+
+  const mealName =
+    String(order.meal_name || order.package_name || "").trim() ||
+    "Meal details";
+  const cleanName = mealName.replace(/\s*x\s*\d+\s*$/i, "").trim() || mealName;
+  const tokens = splitItemText(cleanName);
+  if (tokens.length > 1) {
+    return tokens.map((name) => ({ name, qty: 1 }));
+  }
+
+  return [{ name: cleanName, qty: orderQty }];
+};
+
 export const getSlotSortRank = (slot?: string) =>
   SLOT_ORDER[String(slot || "").trim().toLowerCase()] ?? 99;
 
@@ -309,19 +549,7 @@ export const sortUpcomingStoreOrders = (orders: DashboardOrder[], now = Date.now
   });
 };
 
-export const formatDueTime = (order: DashboardOrder) => {
-  if (isInstantOrder(order)) return "Due now";
-  const dateTime = order.date
-    ? new Date(order.date).getTime()
-    : order.createdAt
-      ? new Date(order.createdAt).getTime()
-      : 0;
-  if (!dateTime) return formatSlotLabel(order.slot);
-  return new Date(dateTime).toLocaleTimeString("en-IN", {
-    hour: "numeric",
-    minute: "2-digit",
-  });
-};
+export const formatDueTime = (order: DashboardOrder) => formatDeliverByTime(order);
 
 export const getActionableOrders = (
   dashboard: DashboardData | null | undefined,

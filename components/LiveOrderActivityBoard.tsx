@@ -11,29 +11,42 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import type { DashboardData, DashboardOrder } from "types";
 import {
+  countOrdersBySlot,
+  DayTab,
+  filterOrdersBySlot,
   formatCountdown,
+  formatDeliveryDateLabel,
   formatDueTime,
+  formatDeliverByTime,
   formatSlotLabel,
+  formatSlotWindow,
   formatStatusLabel,
-  getActionableOrders,
+  getDayOrders,
   getInstantDeadline,
-  getOrderActivityStats,
   getOrderId,
-  getOrderTitle,
+  getOrderLineItems,
   isInstantOrder,
   isPendingAcceptance,
   isPreparingStatus,
-  sortActiveOrdersForBoard,
+  SLOT_FILTERS,
+  SlotFilter,
+  sortStoreOrdersByDateAndSlot,
 } from "utils/orderActivity";
-import DeliveryScheduleBanner from "components/DeliveryScheduleBanner";
+import OrderProgressStepper from "components/OrderProgressStepper";
+import { resolveStoreOrderProgress } from "utils/orderProgressSteps";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const CARD_WIDTH = SCREEN_WIDTH - 56;
+const CARD_WIDTH = SCREEN_WIDTH - 48;
 const CARD_GAP = 12;
+
+type QuickAction = { label: string; value: string };
 
 type Props = {
   dashboard: DashboardData | null;
   onOrderPress?: (order: DashboardOrder) => void;
+  onQuickAction?: (order: DashboardOrder, status: string) => void;
+  updatingOrder?: string | null;
+  nextActions?: (status: string) => QuickAction[];
 };
 
 const StatPill = ({
@@ -48,13 +61,13 @@ const StatPill = ({
   bg: string;
 }) => (
   <View
-    className="flex-1 rounded-2xl px-2.5 py-2.5 mx-0.5"
+    className="flex-1 rounded-2xl px-2 py-2 mx-0.5"
     style={{ backgroundColor: bg }}
   >
     <Text className="text-[10px] font-semibold" style={{ color }}>
       {label}
     </Text>
-    <Text className="text-xl font-extrabold mt-0.5" style={{ color }}>
+    <Text className="text-lg font-extrabold mt-0.5" style={{ color }}>
       {value}
     </Text>
   </View>
@@ -66,12 +79,18 @@ const OrderActivityCard = ({
   index,
   total,
   onPress,
+  onQuickAction,
+  updatingOrder,
+  nextActions,
 }: {
   order: DashboardOrder;
   now: number;
   index: number;
   total: number;
   onPress?: () => void;
+  onQuickAction?: (order: DashboardOrder, status: string) => void;
+  updatingOrder?: string | null;
+  nextActions?: (status: string) => QuickAction[];
 }) => {
   const instant = isInstantOrder(order);
   const pending = isPendingAcceptance(order);
@@ -81,9 +100,27 @@ const OrderActivityCard = ({
     ? formatCountdown(deadline, now, { withSeconds: true })
     : "";
   const shortId = getOrderId(order).slice(-6).toUpperCase();
+  const lineItems = getOrderLineItems(order);
+  const progress = resolveStoreOrderProgress(order.status);
+  const orderKey = getOrderId(order);
+  const isUpdating = updatingOrder === orderKey;
 
-  const accent = instant ? "#2563EB" : pending ? "#D97706" : preparing ? "#059669" : "#475569";
-  const cardBg = instant ? "#EFF6FF" : pending ? "#FFFBEB" : preparing ? "#ECFDF5" : "#F8FAFC";
+  const accent = instant
+    ? "#2563EB"
+    : pending
+      ? "#D97706"
+      : preparing
+        ? "#059669"
+        : "#475569";
+  const cardBg = instant
+    ? "#EFF6FF"
+    : pending
+      ? "#FFFBEB"
+      : preparing
+        ? "#ECFDF5"
+        : "#F8FAFC";
+
+  const actions = nextActions?.(String(order.status || "").toLowerCase()) || [];
 
   return (
     <TouchableOpacity
@@ -97,7 +134,7 @@ const OrderActivityCard = ({
         borderWidth: 1.5,
         borderColor: accent + "33",
         padding: 16,
-        minHeight: 188,
+        minHeight: 320,
       }}
     >
       <View className="flex-row items-center justify-between mb-2">
@@ -106,7 +143,7 @@ const OrderActivityCard = ({
           style={{ backgroundColor: accent + "18" }}
         >
           <Text className="text-[10px] font-extrabold" style={{ color: accent }}>
-            {index}/{total}
+            Order {index}/{total}
           </Text>
         </View>
         {instant ? (
@@ -117,31 +154,80 @@ const OrderActivityCard = ({
             <Ionicons name="flash" size={11} color="#fff" />
             <Text className="text-[10px] font-bold text-white ml-1">INSTANT</Text>
           </View>
+        ) : (
+          <View className="px-2.5 py-1 rounded-full" style={{ backgroundColor: "#fff" }}>
+            <Text className="text-[10px] font-bold text-slate-700">
+              {formatSlotLabel(order.slot)}
+            </Text>
+          </View>
+        )}
+      </View>
+
+      <View className="rounded-xl px-3 py-2 mb-2" style={{ backgroundColor: "#fff" }}>
+        <Text className="text-[10px] font-bold text-slate-500 uppercase">
+          {formatDeliveryDateLabel(order, now)}
+        </Text>
+        <Text className="text-sm font-extrabold text-slate-900 mt-0.5">
+          {instant ? "Deliver ASAP" : `Deliver by ${formatDeliverByTime(order)}`}
+        </Text>
+        {!instant ? (
+          <Text className="text-[11px] text-slate-500 mt-0.5">
+            Window: {formatSlotWindow(order.slot)}
+          </Text>
         ) : null}
       </View>
 
-      {!instant ? (
-        <DeliveryScheduleBanner order={order} now={now} compact />
-      ) : null}
-
-      <Text className="text-base font-extrabold text-slate-900" numberOfLines={2}>
-        {getOrderTitle(order)}
-      </Text>
-      <Text className="text-xs text-slate-500 mt-1" numberOfLines={1}>
+      <Text className="text-xs text-slate-500">
         #{shortId} • {order.user_name || "Customer"}
       </Text>
+      {order.user_phone ? (
+        <Text className="text-[11px] text-slate-400 mt-0.5">{order.user_phone}</Text>
+      ) : null}
 
-      <View className="flex-row flex-wrap mt-3">
+      <View
+        className="mt-3 rounded-2xl px-3 py-3"
+        style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: accent + "22" }}
+      >
+        <Text className="text-[10px] font-bold text-slate-500 uppercase mb-2">
+          Prepare
+        </Text>
+        {lineItems.map((item, itemIndex) => (
+          <View
+            key={`${item.name}-${itemIndex}`}
+            className="flex-row items-center justify-between py-1.5"
+            style={{
+              borderBottomWidth: itemIndex < lineItems.length - 1 ? 1 : 0,
+              borderBottomColor: "#F1F5F9",
+            }}
+          >
+            <Text className="text-sm font-semibold text-slate-800 flex-1 mr-2" numberOfLines={2}>
+              {item.name}
+            </Text>
+            <View className="px-2 py-0.5 rounded-lg" style={{ backgroundColor: accent + "18" }}>
+              <Text className="text-xs font-extrabold" style={{ color: accent }}>
+                ×{item.qty}
+              </Text>
+            </View>
+          </View>
+        ))}
+      </View>
+
+      <View className="flex-row flex-wrap mt-2">
         <View className="px-2 py-1 rounded-full mr-1.5 mb-1" style={{ backgroundColor: "#fff" }}>
           <Text className="text-[10px] font-bold text-slate-700">
             {formatStatusLabel(order.status)}
           </Text>
         </View>
-        <View className="px-2 py-1 rounded-full mb-1" style={{ backgroundColor: "#fff" }}>
-          <Text className="text-[10px] font-bold text-slate-700">
-            {instant ? "Instant" : formatSlotLabel(order.slot)}
-          </Text>
-        </View>
+      </View>
+
+      <View
+        className="mt-2 rounded-2xl px-3 py-3"
+        style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: accent + "22" }}
+      >
+        <Text className="text-[10px] font-semibold text-slate-500 uppercase mb-2">
+          {progress.headline}
+        </Text>
+        <OrderProgressStepper progress={progress} accent={accent} compact />
       </View>
 
       {instant ? (
@@ -156,38 +242,81 @@ const OrderActivityCard = ({
             {countdown || "—"}
           </Text>
         </View>
-      ) : (
-        <View className="mt-3 rounded-2xl px-3 py-3" style={{ backgroundColor: "#fff" }}>
-          <Text className="text-[10px] font-semibold text-slate-500 uppercase">
-            {pending ? "Action needed" : "Due time"}
-          </Text>
-          <Text className="text-lg font-extrabold text-slate-800 mt-0.5">
-            {pending ? "Tap to accept" : formatDueTime(order)}
-          </Text>
+      ) : pending ? (
+        <View className="mt-3 rounded-2xl px-3 py-2 items-center" style={{ backgroundColor: "#FEF3C7" }}>
+          <Text className="text-xs font-bold text-amber-900">Tap card to accept & start preparing</Text>
         </View>
-      )}
+      ) : null}
+
+      {actions.length > 0 && onQuickAction ? (
+        <View className="flex-row flex-wrap mt-3">
+          {actions.map((action) => (
+            <TouchableOpacity
+              key={action.value}
+              onPress={() => onQuickAction(order, action.value)}
+              disabled={isUpdating}
+              className="flex-1 mx-0.5 px-3 py-2.5 rounded-xl items-center"
+              style={{
+                backgroundColor:
+                  action.value === "out_for_delivery" ? "#059669" : "#1D4ED8",
+                opacity: isUpdating ? 0.6 : 1,
+              }}
+            >
+              <Text className="text-xs font-bold text-white">{action.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      ) : null}
     </TouchableOpacity>
   );
 };
 
-export default function LiveOrderActivityBoard({ dashboard, onOrderPress }: Props) {
+export default function LiveOrderActivityBoard({
+  dashboard,
+  onOrderPress,
+  onQuickAction,
+  updatingOrder,
+  nextActions,
+}: Props) {
   const [now, setNow] = useState(Date.now());
+  const [dayTab, setDayTab] = useState<DayTab>("today");
+  const [slotFilter, setSlotFilter] = useState<SlotFilter>("all");
   const [activeIndex, setActiveIndex] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
 
+  const dayOrders = useMemo(
+    () => getDayOrders(dashboard, dayTab, { actionableOnly: true }),
+    [dashboard, dayTab],
+  );
+
+  const slotCounts = useMemo(() => countOrdersBySlot(dayOrders), [dayOrders]);
+
   const orders = useMemo(
-    () => sortActiveOrdersForBoard(getActionableOrders(dashboard)),
-    [dashboard],
+    () =>
+      sortStoreOrdersByDateAndSlot(filterOrdersBySlot(dayOrders, slotFilter), {
+        instantFirst: true,
+      }),
+    [dayOrders, slotFilter],
   );
-  const stats = useMemo(
-    () => getOrderActivityStats(dashboard, now),
-    [dashboard, now],
-  );
+
+  const todayCount = dashboard?.today_orders?.length || 0;
+  const tomorrowCount = dashboard?.tomorrow_orders?.length || 0;
+
+  const pendingCount = dayOrders.filter((o) => isPendingAcceptance(o)).length;
+  const preparingCount = dayOrders.filter((o) => isPreparingStatus(o.status)).length;
+  const outCount = dayOrders.filter((o) =>
+    ["out_for_delivery", "picked_up"].includes(String(o.status || "").toLowerCase()),
+  ).length;
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    setActiveIndex(0);
+    scrollRef.current?.scrollTo({ x: 0, animated: false });
+  }, [dayTab, slotFilter]);
 
   useEffect(() => {
     if (activeIndex >= orders.length) {
@@ -210,14 +339,7 @@ export default function LiveOrderActivityBoard({ dashboard, onOrderPress }: Prop
         backgroundColor: "#fff",
       }}
     >
-      <View
-        style={{
-          paddingHorizontal: 16,
-          paddingTop: 16,
-          paddingBottom: 14,
-          backgroundColor: "#1D4ED8",
-        }}
-      >
+      <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12, backgroundColor: "#1D4ED8" }}>
         <View className="flex-row items-center justify-between">
           <View className="flex-row items-center flex-1">
             <View
@@ -227,36 +349,79 @@ export default function LiveOrderActivityBoard({ dashboard, onOrderPress }: Prop
               <Ionicons name="pulse" size={20} color="#fff" />
             </View>
             <View className="ml-3 flex-1">
-              <Text className="text-xs font-semibold text-blue-100">Live Activity</Text>
+              <Text className="text-xs font-semibold text-blue-100">Kitchen Live</Text>
               <Text className="text-lg font-extrabold text-white">
-                {stats.active > 0 ? `${stats.active} Active Orders` : "Waiting for orders"}
+                {orders.length > 0
+                  ? `${orders.length} order${orders.length === 1 ? "" : "s"} to manage`
+                  : "No orders in this slot"}
               </Text>
             </View>
           </View>
-          {stats.urgentInstant > 0 ? (
-            <View className="px-2.5 py-1 rounded-full" style={{ backgroundColor: "#FEE2E2" }}>
-              <Text className="text-[11px] font-bold" style={{ color: "#B91C1C" }}>
-                {stats.urgentInstant} urgent
-              </Text>
-            </View>
-          ) : stats.active > 0 ? (
-            <View className="px-2.5 py-1 rounded-full" style={{ backgroundColor: "rgba(255,255,255,0.2)" }}>
-              <Text className="text-[11px] font-bold text-white">
-                Swipe →
-              </Text>
-            </View>
-          ) : null}
+        </View>
+
+        <View className="flex-row mt-3 rounded-xl p-1" style={{ backgroundColor: "rgba(255,255,255,0.15)" }}>
+          {([
+            { key: "today" as DayTab, label: "Today", count: todayCount },
+            { key: "tomorrow" as DayTab, label: "Tomorrow", count: tomorrowCount },
+          ]).map((tab) => {
+            const active = dayTab === tab.key;
+            return (
+              <TouchableOpacity
+                key={tab.key}
+                onPress={() => setDayTab(tab.key)}
+                className="flex-1 py-2 rounded-lg items-center"
+                style={{ backgroundColor: active ? "#fff" : "transparent" }}
+              >
+                <Text
+                  className="text-sm font-extrabold"
+                  style={{ color: active ? "#1D4ED8" : "#E0E7FF" }}
+                >
+                  {tab.label} ({tab.count})
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
         <View className="flex-row mt-3">
-          <StatPill label="Pending" value={stats.pending} color="#92400E" bg="rgba(255,255,255,0.92)" />
-          <StatPill label="Preparing" value={stats.preparing} color="#1D4ED8" bg="rgba(255,255,255,0.92)" />
-          <StatPill label="Out" value={stats.outForDelivery} color="#047857" bg="rgba(255,255,255,0.92)" />
-          <StatPill label="Done" value={stats.delivered} color="#C2410C" bg="rgba(255,255,255,0.92)" />
+          <StatPill label="New" value={pendingCount} color="#92400E" bg="rgba(255,255,255,0.92)" />
+          <StatPill label="Preparing" value={preparingCount} color="#1D4ED8" bg="rgba(255,255,255,0.92)" />
+          <StatPill label="Out" value={outCount} color="#047857" bg="rgba(255,255,255,0.92)" />
         </View>
       </View>
 
-      <View className="py-4">
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 10 }}
+      >
+        {SLOT_FILTERS.map((slot) => {
+          const count = slotCounts[slot.key];
+          const active = slotFilter === slot.key;
+          return (
+            <TouchableOpacity
+              key={slot.key}
+              onPress={() => setSlotFilter(slot.key)}
+              className="mr-2 px-3 py-2 rounded-xl"
+              style={{
+                backgroundColor: active ? "#DBEAFE" : "#F8FAFC",
+                borderWidth: 1,
+                borderColor: active ? "#1D4ED8" : "#E2E8F0",
+              }}
+            >
+              <Text
+                className="text-xs font-bold"
+                style={{ color: active ? "#1D4ED8" : "#64748B" }}
+              >
+                {slot.icon ? `${slot.icon} ` : ""}
+                {slot.label} ({count})
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+
+      <View className="py-3">
         {orders.length > 0 ? (
           <>
             <ScrollView
@@ -265,7 +430,7 @@ export default function LiveOrderActivityBoard({ dashboard, onOrderPress }: Prop
               showsHorizontalScrollIndicator={false}
               snapToInterval={CARD_WIDTH + CARD_GAP}
               decelerationRate="fast"
-              contentContainerStyle={{ paddingHorizontal: 16 }}
+              contentContainerStyle={{ paddingHorizontal: 12 }}
               onMomentumScrollEnd={onScrollEnd}
             >
               {orders.map((order, index) => (
@@ -276,6 +441,9 @@ export default function LiveOrderActivityBoard({ dashboard, onOrderPress }: Prop
                   index={index + 1}
                   total={orders.length}
                   onPress={() => onOrderPress?.(order)}
+                  onQuickAction={onQuickAction}
+                  updatingOrder={updatingOrder}
+                  nextActions={nextActions}
                 />
               ))}
             </ScrollView>
@@ -296,14 +464,16 @@ export default function LiveOrderActivityBoard({ dashboard, onOrderPress }: Prop
             </View>
 
             <Text className="text-center text-[11px] text-slate-500 mt-2 px-4">
-              Swipe to see time left on each order • Tap card for details
+              Swipe cards • Tap for full order • Use slot tabs to focus on one meal window
             </Text>
           </>
         ) : (
-          <View className="px-4 py-6 items-center">
-            <Ionicons name="checkmark-done-circle-outline" size={36} color="#94A3B8" />
+          <View className="px-4 py-8 items-center">
+            <Ionicons name="restaurant-outline" size={36} color="#94A3B8" />
             <Text className="text-sm text-slate-500 mt-2 text-center">
-              No active orders right now. New orders will appear here with live timers.
+              {dayTab === "today"
+                ? "No active orders for this slot today."
+                : "No orders scheduled for this slot tomorrow."}
             </Text>
           </View>
         )}

@@ -28,6 +28,11 @@ import {
   getPartnerCategoryForStatus,
   ensurePartnerNotificationSetup,
 } from "services/partnerNotificationActions";
+import {
+  formatStoreProgressSubtitle,
+  resolveStoreOrderProgress,
+  formatProgressStepLine,
+} from "utils/orderProgressSteps";
 
 const ONGOING_CHANNEL_ID = "ongoing-orders";
 export const ONGOING_NOTIFICATION_ID = "partner-next-order-activity";
@@ -168,6 +173,8 @@ const buildDrawerPayload = (
 
   const body = [
     lead,
+    formatStoreProgressSubtitle(focusOrder.status),
+    formatProgressStepLine(resolveStoreOrderProgress(focusOrder.status)),
     statsLine ? `Queue: ${statsLine}` : "",
     queue.length > 1 ? `${queue.length - 1} more in queue` : "",
     ...queueLines,
@@ -178,7 +185,9 @@ const buildDrawerPayload = (
   return {
     title,
     body,
-    subtitle: instant && countdown ? countdown : `${status} • ${customer}`,
+    subtitle:
+      formatStoreProgressSubtitle(focusOrder.status, customer) ||
+      `${status} • ${customer}`,
     categoryIdentifier: getPartnerCategoryForStatus(focusOrder.status),
     focusOrder,
     activeCount: queue.length || stats.active,

@@ -9,6 +9,7 @@ import { Colors } from 'constants/theme';
 import api from 'services/api';
 import { storeService } from 'services/storeService';
 import { pickImageUrl, resolveImageUrl } from 'utils/image';
+import { getOrderLineItems, getOrderQuantity } from 'utils/orderActivity';
 
 const STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
   scheduled: { label: 'Scheduled', color: Colors.textSecondary, bg: '#F3F4F6' },
@@ -66,34 +67,20 @@ const formatSlotTime = (slot?: string, deliveryTime?: string) => {
   return SLOT_META[normalized]?.time || 'Scheduled delivery';
 };
 
-const splitItemText = (value?: string) =>
-  String(value || '')
-    .split(',')
-    .map((part) => part.trim())
-    .filter(Boolean);
+const getDeliveryLineItems = (delivery: any, order: any) =>
+  getOrderLineItems({
+    ...(order || {}),
+    meal_name: delivery?.meal_name || order?.meal_name,
+    package_name: order?.package_name,
+    bundle_items: delivery?.bundle_items || order?.bundle_items,
+    quantity: delivery?.quantity ?? order?.quantity,
+    line_items: delivery?.line_items || order?.line_items,
+  });
 
-const getDeliveryItems = (delivery: any, fallbackName: string) => {
-  const bundleItems = Array.isArray(delivery?.bundle_items)
-    ? delivery.bundle_items
-      .flatMap((item: any) => splitItemText(item?.name || item?.menu_item?.name))
-      .filter(Boolean)
-    : [];
-
-  if (bundleItems.length) {
-    return Array.from(new Set(bundleItems));
-  }
-
-  const mealTokens = splitItemText(delivery?.meal_name);
-  if (mealTokens.length) return Array.from(new Set(mealTokens));
-
-  const fallbackTokens = splitItemText(fallbackName);
-  return fallbackTokens.length ? Array.from(new Set(fallbackTokens)) : [];
-};
-
-const formatItemsLine = (items: string[]) => items.slice(0, 5).join(' • ');
-
-const getDeliverySummary = (delivery: any, fallbackName: string) =>
-  formatItemsLine(getDeliveryItems(delivery, fallbackName));
+const formatLineItemsLine = (items: Array<{ name: string; qty: number }>) =>
+  items
+    .map((item) => (item.qty > 1 ? `${item.name} ×${item.qty}` : item.name))
+    .join(' • ');
 
 const formatDateLabel = (value: string) => {
   const date = new Date(value);
@@ -213,7 +200,7 @@ export default function StoreOrderDetailScreen() {
   const nextEditableStatus = String(nextEditableDelivery?.status || '').toLowerCase();
   const nextPrimaryAction = nextEditableDelivery ? getPrimaryAction(nextEditableStatus) : null;
   const nextDeliveryItems = nextEditableDelivery
-    ? getDeliveryItems(nextEditableDelivery, order.meal_name || 'Meal details')
+    ? getDeliveryLineItems(nextEditableDelivery, order)
     : [];
 
   const updateDeliveryStatus = async (deliveryIndex: number, status: string) => {
@@ -349,7 +336,7 @@ export default function StoreOrderDetailScreen() {
     'item.image',
     'item.image_url',
   ]);
-  const orderTitle = nextDeliveryItems.length ? formatItemsLine(nextDeliveryItems) : normalizeText(order.meal_name) || 'Meal details';
+  const orderTitle = nextDeliveryItems.length ? formatLineItemsLine(nextDeliveryItems) : normalizeText(order.meal_name) || 'Meal details';
   const orderSubtitle = nextEditableDelivery
     ? `${formatSlotLabel(nextEditableDelivery.slot)} • ${formatSlotTime(nextEditableDelivery.slot, nextEditableDelivery.delivery_time)}`
     : normalizeText(order.meal_name) || 'Today’s meal';
@@ -464,7 +451,7 @@ export default function StoreOrderDetailScreen() {
           </View>
           <View className="flex-row items-center">
             <Ionicons name="cube-outline" size={16} color={Colors.textSecondary} />
-            <Text className="text-lg text-textSecondary ml-2">{order.quantity || 1} item(s)</Text>
+            <Text className="text-lg text-textSecondary ml-2">{getOrderQuantity(order)} item(s)</Text>
           </View>
         </View>
 
@@ -475,7 +462,7 @@ export default function StoreOrderDetailScreen() {
                 <View className="flex-1 pr-2">
                   <Text className="text-base font-semibold" style={{ color: Colors.primaryDark }}>Next delivery</Text>
                   <Text className="text-xl font-bold text-textPrimary" numberOfLines={2}>
-                    {nextDeliveryItems.length ? formatItemsLine(nextDeliveryItems) : 'Meal details'}
+                    {nextDeliveryItems.length ? formatLineItemsLine(nextDeliveryItems) : 'Meal details'}
                   </Text>
                   <Text className="text-base text-textSecondary mt-0.5" numberOfLines={1}>
                     {formatSlotLabel(nextEditableDelivery.slot)} • {formatSlotTime(nextEditableDelivery.slot, nextEditableDelivery.delivery_time)}
@@ -603,13 +590,14 @@ export default function StoreOrderDetailScreen() {
                       },
                     ]);
                   };
+                  const deliveryLineItems = getDeliveryLineItems(delivery, order);
                   return (
                     <View key={delivery._id || `${delivery.delivery_index}`} className="bg-white rounded-2xl p-4 mb-3 shadow-sm" style={{ elevation: 2 }}>
                       <View className="flex-row items-start justify-between mb-3">
                         <View className="flex-1 pr-3">
                           <Text className="text-xl font-bold text-textPrimary" numberOfLines={2}>
-                            {getDeliveryItems(delivery, order.meal_name || 'Meal details').length
-                              ? formatItemsLine(getDeliveryItems(delivery, order.meal_name || 'Meal details'))
+                            {deliveryLineItems.length
+                              ? formatLineItemsLine(deliveryLineItems)
                               : (delivery.meal_name || order.meal_name || 'Meal details')}
                           </Text>
                           <Text className="text-base text-textSecondary mt-1">
@@ -622,11 +610,13 @@ export default function StoreOrderDetailScreen() {
                       </View>
 
                       <Text className="text-sm font-semibold text-textSecondary mb-1">Items for this day</Text>
-                      {getDeliveryItems(delivery, order.meal_name || 'Meal details').length ? (
+                      {deliveryLineItems.length ? (
                         <View className="flex-row flex-wrap gap-2 mb-2">
-                          {getDeliveryItems(delivery, order.meal_name || 'Meal details').slice(0, 6).map((itemName: string) => (
-                            <View key={itemName} className="px-3 py-1 rounded-full" style={{ backgroundColor: Colors.divider }}>
-                              <Text className="text-sm font-semibold text-textPrimary">{itemName}</Text>
+                          {deliveryLineItems.slice(0, 6).map((item) => (
+                            <View key={`${item.name}-${item.qty}`} className="px-3 py-1 rounded-full" style={{ backgroundColor: Colors.divider }}>
+                              <Text className="text-sm font-semibold text-textPrimary">
+                                {item.qty > 1 ? `${item.name} ×${item.qty}` : item.name}
+                              </Text>
                             </View>
                           ))}
                         </View>

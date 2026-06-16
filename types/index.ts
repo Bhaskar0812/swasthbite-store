@@ -156,6 +156,7 @@ export type DashboardOrder = {
   order_id?: string;
   delivery_index?: number;
   quantity?: number;
+  line_items?: Array<{ name: string; qty?: number; quantity?: number }>;
 };
 
 export type MenuItem = {
