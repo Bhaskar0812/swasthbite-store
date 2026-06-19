@@ -19,6 +19,7 @@ import { transitionAcceptedOrder } from 'services/incomingOrderAlertService';
 import LiveOrderActivityBoard from 'components/LiveOrderActivityBoard';
 import PendingBulkOrdersBanner from 'components/PendingBulkOrdersBanner';
 import PendingBulkInquiriesBanner from 'components/PendingBulkInquiriesBanner';
+import MissedOrdersBanner from 'components/MissedOrdersBanner';
 import {
   isHiddenStoreDelivery,
   sortStoreOrdersByDateAndSlot,
@@ -250,6 +251,8 @@ export default function DashboardScreen() {
             />
           </View>
         </View>
+
+        <MissedOrdersBanner dashboard={dashboard} onOrderPress={navigateToOrder} />
 
         <LiveOrderActivityBoard
           dashboard={dashboard}

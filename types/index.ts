@@ -100,6 +100,9 @@ export type DashboardData = {
   pending_bulk_inquiries?: PendingBulkInquiry[];
   today_orders: DashboardOrder[];
   tomorrow_orders: DashboardOrder[];
+  missed_orders?: DashboardOrder[];
+  skipped_orders?: DashboardOrder[];
+  overdue_orders?: DashboardOrder[];
   delivered_orders?: DashboardOrder[];
   weekly_revenue: number;
   monthly_revenue: number;

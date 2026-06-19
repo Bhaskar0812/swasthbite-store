@@ -12,6 +12,7 @@ import { Colors } from 'constants/theme';
 import { useStoreStore } from 'store/storeStore';
 import type { DashboardOrder } from 'types';
 import LiveOrderActivityBoard from 'components/LiveOrderActivityBoard';
+import MissedOrdersBanner from 'components/MissedOrdersBanner';
 import PendingBulkOrdersBanner from 'components/PendingBulkOrdersBanner';
 import PendingBulkInquiriesBanner from 'components/PendingBulkInquiriesBanner';
 import {
@@ -94,6 +95,8 @@ export default function OrdersScreen() {
     [dashboard?.tomorrow_orders],
   );
 
+  const missedCount = dashboard?.missed_orders?.length || 0;
+
   return (
     <SafeAreaView className="flex-1 bg-blue-600" edges={['top']}>
       <StatusBar style="light" backgroundColor="#2563EB" />
@@ -102,6 +105,7 @@ export default function OrdersScreen() {
         <Text className="text-2xl font-extrabold text-white mb-1 tracking-wide">Orders</Text>
         <Text className="text-base text-blue-100 mb-2">
           Today {todayAllOrders.length} • Tomorrow {tomorrowCount}
+          {missedCount > 0 ? ` • Missed ${missedCount}` : ''}
         </Text>
 
         <View className="flex-row mt-2 mb-2">
@@ -126,6 +130,8 @@ export default function OrdersScreen() {
         contentContainerStyle={{ paddingBottom: 32, paddingHorizontal: 16 }}
         showsVerticalScrollIndicator={false}
       >
+        <MissedOrdersBanner dashboard={dashboard} onOrderPress={navigateToOrder} />
+
         <LiveOrderActivityBoard
           dashboard={dashboard}
           onOrderPress={navigateToOrder}

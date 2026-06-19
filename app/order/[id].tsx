@@ -174,6 +174,19 @@ export default function StoreOrderDetailScreen() {
 
   const statusMeta = useMemo(() => STATUS_META[String(order?.status || '').toLowerCase()] || STATUS_META.scheduled, [order?.status]);
 
+  const missedDeliveries = useMemo(() => {
+    return (order?.delivery_dates || [])
+      .map((delivery: any, deliveryIndex: number) => ({
+        ...delivery,
+        status: String(delivery.status || '').toLowerCase(),
+        delivery_index: Number.isInteger(Number(delivery?.delivery_index))
+          ? Number(delivery.delivery_index)
+          : deliveryIndex,
+      }))
+      .filter((delivery: any) => delivery.status === 'missed')
+      .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [order?.delivery_dates]);
+
   const upcomingDeliveries = useMemo(() => {
     const deliveries = (order?.delivery_dates || []).map((delivery: any, deliveryIndex: number) => {
       const status = String(delivery.status || '').toLowerCase();
@@ -206,6 +219,87 @@ export default function StoreOrderDetailScreen() {
   const nextDeliveryItems = nextEditableDelivery
     ? getDeliveryLineItems(nextEditableDelivery, order)
     : [];
+
+  const markMissedDelivered = async (delivery: any) => {
+    if (!apiOrderId) return;
+    const deliveryDateStr = new Date(delivery.date).toISOString().split('T')[0];
+    try {
+      setUpdatingKey('delivered-' + delivery._id);
+      const res = await storeService.markDeliveryDelivered(apiOrderId, {
+        delivery_index: delivery.delivery_index,
+        date: deliveryDateStr,
+        slot: delivery.slot,
+      });
+      setOrder(res.data?.subscription || res.data || order);
+      Alert.alert('Delivered', 'Missed delivery marked as delivered.');
+    } catch (error: any) {
+      Alert.alert('Error', error?.response?.data?.message || 'Failed to mark delivered');
+    } finally {
+      setUpdatingKey(null);
+    }
+  };
+
+  const skipMissedDelivery = async (delivery: any) => {
+    if (!apiOrderId) return;
+    const deliveryDateStr = new Date(delivery.date).toISOString().split('T')[0];
+    Alert.alert(
+      'Skip this missed delivery?',
+      'A replacement delivery will be added at the end of the plan (holidays excluded).',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Skip',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setUpdatingKey('skip-' + delivery._id);
+              const res = await storeService.skipDelivery(apiOrderId, {
+                date: deliveryDateStr,
+                slot: delivery.slot,
+              });
+              setOrder(res.data?.subscription || res.data || order);
+              Alert.alert('Skipped', 'Replacement added at end of plan.');
+            } catch (error: any) {
+              Alert.alert('Error', error?.response?.data?.message || 'Failed to skip delivery');
+            } finally {
+              setUpdatingKey(null);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const cancelMissedDelivery = async (delivery: any) => {
+    if (!apiOrderId) return;
+    const deliveryDateStr = new Date(delivery.date).toISOString().split('T')[0];
+    Alert.alert(
+      'Cancel this missed delivery?',
+      'Delivery will be cancelled and a replacement will be added at the end of the plan (holidays excluded).',
+      [
+        { text: 'Back', style: 'cancel' },
+        {
+          text: 'Cancel delivery',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setUpdatingKey('cancel-' + delivery._id);
+              const res = await storeService.cancelDelivery(apiOrderId, {
+                date: deliveryDateStr,
+                slot: delivery.slot,
+              });
+              setOrder(res.data?.subscription || res.data || order);
+              Alert.alert('Cancelled', 'Replacement added at end of plan.');
+            } catch (error: any) {
+              Alert.alert('Error', error?.response?.data?.message || 'Failed to cancel delivery');
+            } finally {
+              setUpdatingKey(null);
+            }
+          },
+        },
+      ],
+    );
+  };
 
   const updateDeliveryStatus = async (deliveryIndex: number, status: string) => {
     if (!apiOrderId) return;
@@ -517,6 +611,88 @@ export default function StoreOrderDetailScreen() {
             <Text className="text-xl font-bold text-textPrimary mt-1">₹{dueAmount}</Text>
           </View>
         </View>
+
+        </View>
+
+        {missedDeliveries.length ? (
+          <View className="mb-4">
+            <Text className="text-2xl font-bold text-textPrimary mb-3">Missed Deliveries</Text>
+            {missedDeliveries.map((delivery: any) => {
+              const meta = STATUS_META.missed;
+              const deliveryDateStr = new Date(delivery.date).toISOString().split('T')[0];
+              const deliveryLineItems = getDeliveryLineItems(delivery, order);
+              const busyKey = delivery._id;
+              return (
+                <View
+                  key={delivery._id || `missed-${delivery.delivery_index}`}
+                  className="bg-white rounded-2xl p-4 mb-3 shadow-sm"
+                  style={{ elevation: 2, borderWidth: 1, borderColor: '#FECACA' }}
+                >
+                  <View className="flex-row items-start justify-between mb-2">
+                    <View className="flex-1 pr-3">
+                      <Text className="text-xl font-bold text-textPrimary" numberOfLines={2}>
+                        {deliveryLineItems.length
+                          ? formatLineItemsLine(deliveryLineItems)
+                          : delivery.meal_name || order.meal_name || 'Meal details'}
+                      </Text>
+                      <Text className="text-base text-textSecondary mt-1">
+                        {formatDateLabel(deliveryDateStr)} • {formatSlotLabel(delivery.slot)}
+                      </Text>
+                    </View>
+                    <View className="px-3 py-1 rounded-full" style={{ backgroundColor: meta.bg }}>
+                      <Text className="text-sm font-bold" style={{ color: meta.color }}>{meta.label}</Text>
+                    </View>
+                  </View>
+
+                  <TouchableOpacity
+                    onPress={() => markMissedDelivered(delivery)}
+                    disabled={updatingKey === 'delivered-' + busyKey}
+                    className="rounded-2xl px-4 py-3 mb-2"
+                    style={{ backgroundColor: Colors.success }}
+                  >
+                    <Text className="text-white text-base font-bold text-center">
+                      {updatingKey === 'delivered-' + busyKey ? 'Updating...' : 'Mark Delivered'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <View className="flex-row gap-2 mb-2">
+                    <TouchableOpacity
+                      onPress={() => setRescheduleTarget({ delivery, deliveryDateStr })}
+                      disabled={updatingKey === 'reschedule-' + busyKey}
+                      className="flex-1 rounded-2xl px-3 py-3"
+                      style={{ backgroundColor: '#EFF6FF' }}
+                    >
+                      <Text className="text-base font-semibold text-center" style={{ color: '#2563EB' }}>
+                        Reschedule
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => skipMissedDelivery(delivery)}
+                      disabled={updatingKey === 'skip-' + busyKey}
+                      className="flex-1 rounded-2xl px-3 py-3"
+                      style={{ backgroundColor: '#FFF7ED' }}
+                    >
+                      <Text className="text-base font-semibold text-center" style={{ color: '#C2410C' }}>
+                        Skip
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <TouchableOpacity
+                    onPress={() => cancelMissedDelivery(delivery)}
+                    disabled={updatingKey === 'cancel-' + busyKey}
+                    className="rounded-2xl px-4 py-3"
+                    style={{ backgroundColor: '#FFF1F2' }}
+                  >
+                    <Text className="text-error text-base font-semibold text-center">
+                      {updatingKey === 'cancel-' + busyKey ? 'Cancelling...' : 'Cancel & Replace at End'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+          </View>
+        ) : null}
 
         <Text className="text-2xl font-bold text-textPrimary mb-3">Delivery Timeline</Text>
         {sortedDeliveryDates.length ? (

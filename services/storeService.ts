@@ -19,6 +19,7 @@ export const storeService = {
       const candidates = [
         ...(dashboardData?.today_orders || []),
         ...(dashboardData?.tomorrow_orders || []),
+        ...(dashboardData?.missed_orders || []),
         ...(dashboardData?.delivered_orders || []),
       ];
 
@@ -366,6 +367,20 @@ export const storeService = {
     payload: { date: string; slot?: string; new_date: string; new_slot?: string },
   ) => {
     const res = await api.put(`/store/orders/${orderId}/reschedule-delivery`, payload);
+    return res.data;
+  },
+  markDeliveryDelivered: async (
+    orderId: string,
+    payload: { delivery_index?: number; date?: string; slot?: string },
+  ) => {
+    const res = await api.put(`/store/orders/${orderId}/mark-delivered`, payload);
+    return res.data;
+  },
+  cancelDelivery: async (
+    orderId: string,
+    payload: { date: string; slot?: string },
+  ) => {
+    const res = await api.put(`/store/orders/${orderId}/cancel-delivery`, payload);
     return res.data;
   },
   getSubscriptions: async (status: string = "active") => {
