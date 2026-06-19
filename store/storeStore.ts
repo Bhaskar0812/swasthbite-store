@@ -1,10 +1,6 @@
 import { create } from "zustand";
 import { storeService } from "services/storeService";
-import { syncOngoingNextOrderActivity } from 'services/ongoingOrderActivityService';
-import {
-  syncPendingIncomingOrdersFromDashboard,
-  pulseIncomingOrderAlerts,
-} from 'services/incomingOrderAlertService';
+import { syncOngoingNextOrderActivity } from "services/ongoingOrderActivityService";
 import type { DashboardData, MenuItem, Package } from "types";
 
 const unwrapData = <T>(payload: any): T => {
@@ -22,6 +18,7 @@ type StoreState = {
   loading: boolean;
 
   fetchDashboard: () => Promise<void>;
+  refreshDashboardAndActivity: () => Promise<void>;
   fetchMenuItems: () => Promise<void>;
   fetchPackages: () => Promise<void>;
   toggleOnline: () => Promise<void>;
@@ -50,15 +47,19 @@ export const useStoreStore = create<StoreState>((set, get) => ({
         isOnline: dashboardData?.is_online ?? false,
         loading: false,
       });
-      await syncPendingIncomingOrdersFromDashboard(dashboardData);
-      await pulseIncomingOrderAlerts(dashboardData);
-      await syncOngoingNextOrderActivity(dashboardData, {
-        playSound: false,
-        isOnline: dashboardData?.is_online ?? false,
-      });
     } catch {
       set({ loading: false });
     }
+  },
+
+  refreshDashboardAndActivity: async () => {
+    await get().fetchDashboard();
+    const dashboard = get().dashboard;
+    if (!dashboard) return;
+    await syncOngoingNextOrderActivity(dashboard, {
+      playSound: false,
+      isOnline: dashboard.is_online ?? false,
+    });
   },
 
   fetchMenuItems: async () => {
@@ -78,51 +79,26 @@ export const useStoreStore = create<StoreState>((set, get) => ({
   toggleOnline: async () => {
     try {
       const res = await storeService.toggleOnline();
-      const onlinePayload = unwrapData<{ is_online?: boolean } | null>(res);
-      const nextOnline = onlinePayload?.is_online ?? !get().isOnline;
-      set({ isOnline: nextOnline });
-      await syncOngoingNextOrderActivity(get().dashboard, {
-        playSound: false,
-        isOnline: nextOnline,
-        forceUpdate: true,
-      });
+      const data = unwrapData<{ is_online?: boolean }>(res);
+      set({ isOnline: data?.is_online ?? !get().isOnline });
+      await get().refreshDashboardAndActivity();
     } catch {}
   },
 
   toggleItemStock: async (itemId, available) => {
-    try {
-      await storeService.toggleItemStock(itemId, available);
-      set((s) => ({
-        menuItems: s.menuItems.map((item) =>
-          item._id === itemId ? { ...item, store_available: available } : item,
-        ),
-      }));
-    } catch {}
+    await storeService.updateMenuItem(itemId, { is_available: available });
+    await get().fetchMenuItems();
   },
 
   toggleItemInstantAvailability: async (itemId, available) => {
-    try {
-      await storeService.toggleItemInstantAvailability(itemId, available);
-      set((s) => ({
-        menuItems: s.menuItems.map((item) =>
-          item._id === itemId
-            ? { ...item, available_for_instant: available }
-            : item,
-        ),
-      }));
-    } catch {}
+    await storeService.updateMenuItem(itemId, {
+      is_instant_available: available,
+    });
+    await get().fetchMenuItems();
   },
 
   togglePackage: async (packageId) => {
-    try {
-      await storeService.togglePackage(packageId);
-      set((s) => ({
-        packages: s.packages.map((pkg) =>
-          pkg._id === packageId
-            ? { ...pkg, store_selected: !pkg.store_selected }
-            : pkg,
-        ),
-      }));
-    } catch {}
+    await storeService.togglePackage(packageId);
+    await get().fetchPackages();
   },
 }));

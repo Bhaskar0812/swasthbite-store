@@ -1,9 +1,7 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useNotificationStore } from 'store/notificationStore';
 
 export default function TabsLayout() {
-  const unreadCount = useNotificationStore((s) => s.unreadCount);
 
   return (
     <Tabs
@@ -74,7 +72,6 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="person-outline" size={size} color={color} />
           ),
-          tabBarBadge: unreadCount > 0 ? unreadCount : undefined,
         }}
       />
     </Tabs>

@@ -380,7 +380,6 @@ export async function syncOngoingNextOrderActivity(
 
     const unchanged =
       !options.forceUpdate &&
-      !focusNeedsUrgentAlert &&
       title === lastOngoingTitle &&
       body === lastOngoingBody &&
       categoryIdentifier === lastOngoingCategory;
@@ -403,16 +402,12 @@ export async function syncOngoingNextOrderActivity(
         ...(Platform.OS === "android"
           ? {
               channelId: ONGOING_CHANNEL_ID,
-              priority: focusNeedsUrgentAlert
-                ? Notifications.AndroidNotificationPriority.HIGH
-                : Notifications.AndroidNotificationPriority.DEFAULT,
-              autoDismiss: !focusNeedsUrgentAlert,
-              sticky: focusNeedsUrgentAlert,
+              priority: Notifications.AndroidNotificationPriority.HIGH,
+              autoDismiss: false,
+              sticky: true,
             }
           : {
-              interruptionLevel: focusNeedsUrgentAlert
-                ? "timeSensitive"
-                : "passive",
+              interruptionLevel: "active",
             }),
         data: {
           type: "ongoing_next_order",

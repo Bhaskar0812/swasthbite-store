@@ -3,7 +3,6 @@ import * as Notifications from "expo-notifications";
 import {
   syncOngoingNextOrderActivity,
   syncOngoingNextOrderActivityFromOrder,
-  ONGOING_NOTIFICATION_ID,
 } from "services/ongoingOrderActivityService";
 import {
   PARTNER_CATEGORY_PENDING,
@@ -12,7 +11,6 @@ import type { DashboardData, DashboardOrder } from "types";
 import {
   buildPartnerOrderQueue,
   getOrderId,
-  isInstantOrder,
   isPendingAcceptance,
   requiresBlockingIncomingAlert,
 } from "utils/orderActivity";
@@ -35,9 +33,9 @@ export type IncomingOrderInfo = {
 
 const pendingAcceptanceOrders = new Set<string>();
 const recentBurstAt = new Map<string, number>();
-const overlayDismissedUntil = new Map<string, number>();
+const overlayDismissedOrders = new Set<string>();
 const snoozedUntil = new Map<string, number>();
-const OVERLAY_DISMISS_MS = 30 * 60 * 1000;
+const alertedOrderIds = new Set<string>();
 
 const normalizeText = (value?: unknown) => {
   const normalized = String(value ?? "").trim();
@@ -247,8 +245,8 @@ export async function postIncomingOrderAlert(
         ? {
             channelId: INCOMING_CHANNEL_ID,
             priority: Notifications.AndroidNotificationPriority.HIGH,
-            autoDismiss: true,
-            sticky: false,
+            autoDismiss: false,
+            sticky: true,
           }
         : {
             interruptionLevel: "timeSensitive",
@@ -298,7 +296,7 @@ export const snoozeIncomingOrderAlert = async (orderId: string) => {
   if (!normalized) return;
 
   snoozedUntil.set(normalized, Date.now() + SNOOZE_MS);
-  overlayDismissedUntil.set(normalized, Date.now() + SNOOZE_MS);
+  overlayDismissedOrders.add(normalized);
   pendingAcceptanceOrders.delete(normalized);
   recentBurstAt.delete(normalized);
 
@@ -308,12 +306,15 @@ export const snoozeIncomingOrderAlert = async (orderId: string) => {
 };
 
 export const isIncomingOverlayDismissed = (orderId: string) => {
-  const until = overlayDismissedUntil.get(orderId) || 0;
-  return Date.now() < until;
+  const normalized = String(orderId || "").trim();
+  if (!normalized) return false;
+  return overlayDismissedOrders.has(normalized);
 };
 
-export const dismissIncomingOverlayTemporarily = (orderId: string) => {
-  overlayDismissedUntil.set(orderId, Date.now() + OVERLAY_DISMISS_MS);
+export const dismissIncomingOverlay = (orderId: string) => {
+  const normalized = String(orderId || "").trim();
+  if (!normalized) return;
+  overlayDismissedOrders.add(normalized);
 };
 
 export async function alertIncomingOrder(
@@ -366,13 +367,13 @@ export async function alertIncomingOrder(
     return;
   }
 
+  const alreadyAlerted = alertedOrderIds.has(order.orderId);
   pendingAcceptanceOrders.add(order.orderId);
 
-  await postIncomingOrderAlert(order, { playSound: true });
-  await syncOngoingNextOrderActivityFromOrder(order, dashboard, {
-    playSound: false,
-    forceUpdate: true,
-  });
+  if (!alreadyAlerted) {
+    alertedOrderIds.add(order.orderId);
+    await postIncomingOrderAlert(order, { playSound: true });
+  }
 }
 
 export async function pulseIncomingOrderAlerts(
@@ -387,9 +388,10 @@ export async function pulseIncomingOrderAlerts(
     if (!blockingIds.has(orderId) || isIncomingAlertSnoozed(orderId)) {
       pendingAcceptanceOrders.delete(orderId);
       if (!blockingIds.has(orderId)) {
-        overlayDismissedUntil.delete(orderId);
+        overlayDismissedOrders.delete(orderId);
         recentBurstAt.delete(orderId);
         snoozedUntil.delete(orderId);
+        alertedOrderIds.delete(orderId);
       }
     }
   }
@@ -399,25 +401,21 @@ export async function pulseIncomingOrderAlerts(
       () => null,
     );
   }
-
-  await syncOngoingNextOrderActivity(dashboard, {
-    playSound: false,
-    forceUpdate: true,
-    isOnline: dashboard.is_online,
-  });
 }
 
 export async function clearIncomingOrderAlert(orderId?: string) {
   if (orderId) {
     pendingAcceptanceOrders.delete(orderId);
     recentBurstAt.delete(orderId);
-    overlayDismissedUntil.delete(orderId);
+    overlayDismissedOrders.delete(orderId);
     snoozedUntil.delete(orderId);
+    alertedOrderIds.delete(orderId);
   } else {
     pendingAcceptanceOrders.clear();
     recentBurstAt.clear();
-    overlayDismissedUntil.clear();
+    overlayDismissedOrders.clear();
     snoozedUntil.clear();
+    alertedOrderIds.clear();
   }
 
   await Notifications.dismissNotificationAsync(INCOMING_NOTIFICATION_ID).catch(
@@ -491,49 +489,5 @@ export async function handleIncomingOrderStatusChange(
 export async function refreshIncomingOrderActivity(
   dashboard: DashboardData | null | undefined,
 ) {
-  await pulseIncomingOrderAlerts(dashboard);
-}
-
-const dashboardOrderToPayload = (order: any) => {
-  const subscriptionId = String(order?.order_id || order?.subscription_id || "");
-  return {
-    subscription_id: subscriptionId,
-    orderId: subscriptionId,
-    package_name: order?.package_name || order?.meal_name,
-    customer_name: order?.user_name,
-    delivery_mode: order?.delivery_mode || "scheduled",
-    delivery_status: order?.status || "scheduled",
-    status: order?.status || "scheduled",
-    requires_acceptance: true,
-    instant_deadline_at: order?.instant_deadline_at,
-    total_amount: order?.total_amount ?? order?.total_price,
-  };
-};
-
-export async function syncPendingIncomingOrdersFromDashboard(
-  dashboard: DashboardData | null | undefined,
-) {
-  const candidates = [
-    ...(dashboard?.today_orders || []),
-    ...(dashboard?.tomorrow_orders || []),
-  ];
-
-  const pendingOrders = candidates.filter((order) => {
-    const status = String(order.status || "").toLowerCase();
-    const mode = String((order as any)?.delivery_mode || "").toLowerCase();
-    if (["pending", "scheduled"].includes(status)) return true;
-    return (
-      mode === "instant" &&
-      !["delivered", "cancelled", "preparing", "out_for_delivery"].includes(
-        status,
-      )
-    );
-  });
-
-  for (const order of pendingOrders) {
-    if (!requiresBlockingIncomingAlert(order as DashboardOrder)) continue;
-    await alertIncomingOrder(dashboardOrderToPayload(order), dashboard);
-  }
-
   await pulseIncomingOrderAlerts(dashboard);
 }

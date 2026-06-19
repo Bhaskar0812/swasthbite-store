@@ -12,7 +12,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useStoreStore } from "store/storeStore";
 import {
-  dismissIncomingOverlayTemporarily,
+  dismissIncomingOverlay,
   getBlockingIncomingOrders,
   isIncomingOverlayDismissed,
   snoozeIncomingOrderAlert,
@@ -111,7 +111,7 @@ export default function IncomingOrderOverlay({
         }}
       >
         <TouchableOpacity
-          onPress={() => snoozeIncomingOrderAlert(orderId)}
+          onPress={() => dismissIncomingOverlay(orderId)}
           style={{
             position: "absolute",
             top: 52,
@@ -259,7 +259,7 @@ export default function IncomingOrderOverlay({
 
             <TouchableOpacity
               onPress={() => {
-                dismissIncomingOverlayTemporarily(orderId);
+                dismissIncomingOverlay(orderId);
                 router.push({
                   pathname: "/order/[id]" as any,
                   params: { id: orderId, openAt: String(Date.now()) },

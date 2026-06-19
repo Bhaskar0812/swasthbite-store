@@ -3,13 +3,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAuthStore } from 'store/authStore';
-import { useNotificationStore } from 'store/notificationStore';
 import { Colors } from 'constants/theme';
 
 export default function ProfileScreen() {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
-  const unreadCount = useNotificationStore((s) => s.unreadCount);
 
   const handleCopyStoreId = async () => {
     const storeId = String(user?._id || '').toUpperCase();
@@ -108,12 +106,6 @@ export default function ProfileScreen() {
 
         {/* Menu Items */}
         <View className="mb-3">
-          <MenuItem
-            icon="notifications-outline"
-            label="Notifications"
-            route="/notifications"
-            badge={unreadCount}
-          />
           <MenuItem icon="chatbubbles-outline" label="Customer Chat" route="/chat" color={Colors.info} />
           <MenuItem icon="card-outline" label="Bank Account" route="/bank-account" color={Colors.success} />
           <MenuItem icon="pricetag-outline" label="Promotions" route="/promotions" color={Colors.accent} />

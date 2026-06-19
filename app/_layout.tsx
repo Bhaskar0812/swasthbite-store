@@ -6,9 +6,8 @@ import * as Notifications from 'expo-notifications';
 import * as SplashScreen from 'expo-splash-screen';
 import { useAuthStore } from 'store/authStore';
 import { connectSocket, disconnectSocket, getSocket } from 'services/socket';
-import { useNotificationStore } from 'store/notificationStore';
 import { useStoreStore } from 'store/storeStore';
-import { clearOngoingNextOrderActivity, tickOngoingOrderActivity } from 'services/ongoingOrderActivityService';
+import { clearOngoingNextOrderActivity } from 'services/ongoingOrderActivityService';
 import {
   ensurePartnerNotificationSetup,
   handlePartnerNotificationResponse,
@@ -19,7 +18,6 @@ import {
   handleIncomingOrderStatusChange,
   normalizeIncomingOrderPayload,
   prepareIncomingOrderNotifications,
-  pulseIncomingOrderAlerts,
 } from 'services/incomingOrderAlertService';
 import PartnerOrderAlertHost from 'components/PartnerOrderAlertHost';
 import { useSyncPushToken } from 'hooks/useSyncPushToken';
@@ -38,7 +36,7 @@ Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
     const data = notification?.request?.content?.data as Record<string, any> | undefined;
     const type = String(data?.type || data?.event || '').toLowerCase();
-    const isSilentSticky = type === 'ongoing_next_order' || data?.silent === true;
+    const isOngoingActivity = type === 'ongoing_next_order';
     const isIncomingOrderPush =
       type === 'order_new' ||
       type === 'order:new' ||
@@ -46,11 +44,11 @@ Notifications.setNotificationHandler({
       type === 'bulk_order:confirmed';
 
     return {
-      shouldShowAlert: !isSilentSticky,
-      shouldPlaySound: isIncomingOrderPush || !isSilentSticky,
-      shouldSetBadge: true,
-      shouldShowBanner: !isSilentSticky,
-      shouldShowList: true,
+      shouldShowAlert: isIncomingOrderPush,
+      shouldPlaySound: isIncomingOrderPush,
+      shouldSetBadge: isIncomingOrderPush,
+      shouldShowBanner: isIncomingOrderPush,
+      shouldShowList: isIncomingOrderPush && !isOngoingActivity,
     };
   },
 });
@@ -60,16 +58,15 @@ export default function RootLayout() {
   const token = useAuthStore((s) => s.token);
   const user = useAuthStore((s) => s.user);
   const fetchDashboard = useStoreStore((s) => s.fetchDashboard);
-  const fetchUnreadCount = useNotificationStore((s) => s.fetchUnreadCount);
+  const refreshDashboardAndActivity = useStoreStore((s) => s.refreshDashboardAndActivity);
   const [showSplash, setShowSplash] = useState(true);
   const [appReady, setAppReady] = useState(false);
   const dashboard = useStoreStore((s) => s.dashboard);
   const isOnline = useStoreStore((s) => s.isOnline);
   const appStateRef = useRef(AppState.currentState);
-  const recentStoreAlertKeys = useRef(new Map<string, number>());
 
   const queueDashboardRefresh = () => {
-    debouncedDashboardRefresh(() => fetchDashboard(), 800);
+    debouncedDashboardRefresh(() => refreshDashboardAndActivity(), 800);
   };
 
   const shouldHandleOrderAlert = (orderId: string) => {
@@ -112,7 +109,6 @@ export default function RootLayout() {
       ensurePartnerNotificationSetup().catch(() => null);
       connectSocket(token, user._id);
       fetchDashboard().catch(() => null);
-      fetchUnreadCount();
     } else if (!token) {
       disconnectSocket();
       clearOngoingNextOrderActivity();
@@ -145,7 +141,6 @@ export default function RootLayout() {
           eventType === 'bulk_inquiry:new'
         ) {
           queueDashboardRefresh();
-          fetchUnreadCount().catch(() => null);
           if (appStateRef.current === 'active') {
             Toast.show({
               type: 'info',
@@ -164,7 +159,6 @@ export default function RootLayout() {
 
         alertIncomingOrder(data, dashboard).catch(() => null);
         queueDashboardRefresh();
-        fetchUnreadCount().catch(() => null);
       }
     });
 
@@ -235,7 +229,7 @@ export default function RootLayout() {
       receivedSub.remove();
       responseSub.remove();
     };
-  }, [dashboard, fetchDashboard, fetchUnreadCount]);
+  }, [dashboard, fetchDashboard, refreshDashboardAndActivity]);
 
   useEffect(() => {
     if (!token) return;
@@ -243,34 +237,8 @@ export default function RootLayout() {
     const socket = getSocket();
     if (!socket) return;
 
-    const shouldNotifyStore = (key: string) => {
-      const now = Date.now();
-      const last = recentStoreAlertKeys.current.get(key) || 0;
-      if (now - last < 8000) return false;
-      recentStoreAlertKeys.current.set(key, now);
-      return true;
-    };
-
-    const refreshStoreState = async (
-      title: string,
-      message: string,
-      dedupeKey?: string,
-    ) => {
-      if (dedupeKey && !shouldNotifyStore(dedupeKey)) {
-        queueDashboardRefresh();
-        fetchUnreadCount().catch(() => null);
-        return;
-      }
-      if (appStateRef.current === 'active') {
-        Toast.show({
-          type: 'success',
-          text1: title,
-          text2: message,
-          position: 'top',
-        });
-      }
+    const refreshStoreState = async () => {
       queueDashboardRefresh();
-      fetchUnreadCount().catch(() => null);
     };
 
     const onNewOrder = (payload: any) => {
@@ -279,60 +247,20 @@ export default function RootLayout() {
         payload?.subscription?.is_bulk_order === true;
 
       if (isBulkOrder) {
-        const sub = payload?.subscription || {};
-        const customerName =
-          payload?.user?.name || sub?.user?.name || 'Customer';
-        const deliveryDate = sub?.delivery_dates?.[0]?.date;
-        const dateLabel = deliveryDate
-          ? new Date(deliveryDate).toLocaleDateString('en-IN', {
-              weekday: 'short',
-              day: 'numeric',
-              month: 'short',
-            })
-          : 'Date TBD';
-        refreshStoreState(
-          'Bulk order confirmed',
-          `${customerName} · ${dateLabel} · Check Bulk tab`,
-        );
+        refreshStoreState();
         return;
       }
 
-      const normalized = normalizeIncomingOrderPayload(payload);
-      const orderId = normalized?.orderId || '';
       alertIncomingOrder(payload, dashboard).catch((error) => {
         console.error('Failed to present new order notification', error);
       });
 
-      refreshStoreState(
-        normalized?.deliveryMode === 'instant' ? '⚡ Instant order!' : '🔔 New order!',
-        normalized
-          ? `#${normalized.orderId.slice(-6).toUpperCase()} • ${normalized.packageName} • Tap to accept`
-          : 'A new order has arrived — accept now',
-        orderId ? `order-alert-${orderId}` : undefined,
-      );
+      refreshStoreState();
     };
 
     const onOrderUpdated = (payload: any) => {
       handleIncomingOrderStatusChange(payload, dashboard).catch(() => null);
-
-      const subId = String(payload?.subscription_id || payload?.subscription?._id || '').trim();
-      const status = String(payload?.status || '').toLowerCase();
-      const count = Number(payload?.cancelled_delivery_count || 0);
-
-      if (status === 'cancelled' && count > 0) {
-        refreshStoreState(
-          'Order cancelled',
-          `${count} delivery${count > 1 ? 's' : ''} cancelled${subId ? ` · #${subId.slice(-6).toUpperCase()}` : ''}`,
-          subId ? `order-cancelled:${subId}` : undefined,
-        );
-        return;
-      }
-
-      refreshStoreState(
-        'Order updated',
-        payload?.status ? `Status changed to ${String(payload.status).replaceAll('_', ' ')}` : 'An order changed',
-        subId ? `order-updated:${subId}:${status}` : undefined,
-      );
+      refreshStoreState();
     };
 
     const onOrderCancelled = (payload: any) => {
@@ -340,39 +268,16 @@ export default function RootLayout() {
         ...payload,
         status: 'cancelled',
       }, dashboard).catch(() => null);
-
-      const subId = String(
-        payload?.subscription?._id || payload?.subscription_id || '',
-      ).trim();
-      const count = Number(payload?.cancelled_delivery_count || 0);
-      const shortId = subId.slice(-6).toUpperCase();
-
-      refreshStoreState(
-        'Order cancelled',
-        count > 0
-          ? `${count} delivery${count > 1 ? 's' : ''} cancelled${shortId ? ` · #${shortId}` : ''}`
-          : subId
-            ? `Order #${shortId} was cancelled`
-            : 'An order was cancelled',
-        subId ? `order-cancelled:${subId}` : undefined,
-      );
+      refreshStoreState();
     };
 
-    const onDeliveryRescheduled = (payload: any) => {
-      refreshStoreState(
-        'Delivery rescheduled',
-        payload?.subscription_id ? `Delivery updated for ${String(payload.subscription_id).slice(-6).toUpperCase()}` : 'A delivery was rescheduled',
-      );
+    const onDeliveryRescheduled = () => {
+      refreshStoreState();
     };
 
     const onDeliveryStatus = (payload: any) => {
       handleIncomingOrderStatusChange(payload, dashboard).catch(() => null);
-      refreshStoreState(
-        'Delivery updated',
-        payload?.status
-          ? `Delivery is now ${String(payload.status).replaceAll('_', ' ')}`
-          : 'Delivery status changed',
-      );
+      refreshStoreState();
     };
 
     const onStoreToggled = (payload: any) => {
@@ -384,13 +289,8 @@ export default function RootLayout() {
       });
     };
 
-    const onBulkInquiry = (payload: any) => {
-      refreshStoreState(
-        'New bulk inquiry',
-        payload?.inquiry_number
-          ? `${payload.inquiry_number} · ${payload.headcount || '?'} people`
-          : 'A customer submitted a custom bulk request',
-      );
+    const onBulkInquiry = () => {
+      refreshStoreState();
     };
 
     socket.on('order:new', onNewOrder);
@@ -415,34 +315,7 @@ export default function RootLayout() {
       socket.off('store:toggled', onStoreToggled);
       socket.off('connect');
     };
-  }, [token, dashboard, fetchDashboard, fetchUnreadCount]);
-
-  useEffect(() => {
-    if (!token) return;
-
-    const intervalId = setInterval(() => {
-      fetchDashboard();
-    }, 20000);
-
-    return () => {
-      clearInterval(intervalId);
-    };
-  }, [token, fetchDashboard]);
-
-  useEffect(() => {
-    if (!token) return;
-
-    const timerId = setInterval(() => {
-      const state = useStoreStore.getState();
-      if (!state.dashboard) return;
-      pulseIncomingOrderAlerts(state.dashboard).catch(() => null);
-      tickOngoingOrderActivity(state.dashboard, { isOnline: state.isOnline }).catch(
-        () => null,
-      );
-    }, 30000);
-
-    return () => clearInterval(timerId);
-  }, [token]);
+  }, [token, dashboard, refreshDashboardAndActivity]);
 
   return (
     <>
