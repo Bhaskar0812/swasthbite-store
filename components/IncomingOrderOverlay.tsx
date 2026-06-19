@@ -13,8 +13,9 @@ import { router } from "expo-router";
 import { useStoreStore } from "store/storeStore";
 import {
   dismissIncomingOverlayTemporarily,
-  getPendingAcceptanceOrders,
+  getBlockingIncomingOrders,
   isIncomingOverlayDismissed,
+  snoozeIncomingOrderAlert,
 } from "services/incomingOrderAlertService";
 import {
   formatSlotLabel,
@@ -29,7 +30,7 @@ import {
 import { Colors } from "constants/theme";
 
 type Props = {
-  onAccept?: (order: ReturnType<typeof getPendingAcceptanceOrders>[number]) => void;
+  onAccept?: (order: ReturnType<typeof getBlockingIncomingOrders>[number]) => void;
   acceptingOrderId?: string | null;
 };
 
@@ -42,7 +43,7 @@ export default function IncomingOrderOverlay({
   const pulse = useRef(new Animated.Value(1)).current;
 
   const pendingOrder = useMemo(() => {
-    const queue = getPendingAcceptanceOrders(dashboard);
+    const queue = getBlockingIncomingOrders(dashboard);
     return (
       queue.find((order) => !isIncomingOverlayDismissed(getOrderId(order))) ||
       null
@@ -109,6 +110,24 @@ export default function IncomingOrderOverlay({
           paddingHorizontal: 20,
         }}
       >
+        <TouchableOpacity
+          onPress={() => snoozeIncomingOrderAlert(orderId)}
+          style={{
+            position: "absolute",
+            top: 52,
+            right: 24,
+            zIndex: 10,
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: "rgba(255,255,255,0.2)",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Ionicons name="close" size={24} color="#FFF" />
+        </TouchableOpacity>
+
         <Animated.View style={{ transform: [{ scale: pulse }] }}>
           <View
             style={{
@@ -254,6 +273,19 @@ export default function IncomingOrderOverlay({
             >
               <Text style={{ color: "#64748B", fontSize: 14, fontWeight: "600" }}>
                 View full order details
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => snoozeIncomingOrderAlert(orderId)}
+              style={{
+                marginTop: 10,
+                paddingVertical: 12,
+                alignItems: "center",
+              }}
+            >
+              <Text style={{ color: "#94A3B8", fontSize: 14, fontWeight: "600" }}>
+                Dismiss for now
               </Text>
             </TouchableOpacity>
           </View>

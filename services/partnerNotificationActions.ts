@@ -2,6 +2,7 @@ import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 import Toast from "react-native-toast-message";
 import { storeService } from "services/storeService";
+import { snoozeIncomingOrderAlert } from "services/incomingOrderAlertService";
 import type { DashboardData, DashboardOrder } from "types";
 import {
   formatStatusLabel,
@@ -20,6 +21,7 @@ export const ACTION_START_PREPARING = "start_preparing";
 export const ACTION_MARK_DISPATCH = "mark_out_for_delivery";
 export const ACTION_OPEN_ORDER = "open_order";
 export const ACTION_OPEN_APP = "open_app";
+export const ACTION_DISMISS = "dismiss_alert";
 
 let categoriesRegistered = false;
 
@@ -45,6 +47,11 @@ export async function registerPartnerNotificationCategories() {
       options: { opensAppToForeground: true },
     },
     openOrderAction,
+    {
+      identifier: ACTION_DISMISS,
+      buttonTitle: "Dismiss",
+      options: { opensAppToForeground: false, isDestructive: true },
+    },
   ]);
 
   await Notifications.setNotificationCategoryAsync(PARTNER_CATEGORY_PREPARING, [
@@ -143,6 +150,11 @@ export async function handlePartnerNotificationResponse(
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
+
+  if (actionId === ACTION_DISMISS && orderId) {
+    await snoozeIncomingOrderAlert(orderId);
+    return true;
+  }
 
   if (
     type === "ongoing_next_order" &&

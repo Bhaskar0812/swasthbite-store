@@ -11,6 +11,7 @@ import {
   getOrderId,
   isPendingAcceptance,
   isPreparingStatus,
+  requiresBlockingIncomingAlert,
   resolveOrderApiIds,
   sortActiveOrdersForBoard,
   getActionableOrders,
@@ -373,10 +374,13 @@ export async function syncOngoingNextOrderActivity(
 
     const focusIsPending =
       Boolean(focusOrder) && isPendingAcceptance(focusOrder as DashboardOrder);
+    const focusNeedsUrgentAlert =
+      Boolean(focusOrder) &&
+      requiresBlockingIncomingAlert(focusOrder as DashboardOrder);
 
     const unchanged =
       !options.forceUpdate &&
-      !focusIsPending &&
+      !focusNeedsUrgentAlert &&
       title === lastOngoingTitle &&
       body === lastOngoingBody &&
       categoryIdentifier === lastOngoingCategory;
@@ -388,7 +392,6 @@ export async function syncOngoingNextOrderActivity(
 
     const orderId = focusOrder ? getOrderId(focusOrder) : "";
     const altOrderIds = focusOrder ? resolveOrderApiIds(focusOrder).join(",") : "";
-    const iosInterruptionLevel = focusOrder ? "timeSensitive" : "passive";
 
     await Notifications.scheduleNotificationAsync({
       identifier: ONGOING_NOTIFICATION_ID,
@@ -400,12 +403,16 @@ export async function syncOngoingNextOrderActivity(
         ...(Platform.OS === "android"
           ? {
               channelId: ONGOING_CHANNEL_ID,
-              priority: Notifications.AndroidNotificationPriority.MAX,
-              autoDismiss: false,
-              sticky: true,
+              priority: focusNeedsUrgentAlert
+                ? Notifications.AndroidNotificationPriority.HIGH
+                : Notifications.AndroidNotificationPriority.DEFAULT,
+              autoDismiss: !focusNeedsUrgentAlert,
+              sticky: focusNeedsUrgentAlert,
             }
           : {
-              interruptionLevel: iosInterruptionLevel,
+              interruptionLevel: focusNeedsUrgentAlert
+                ? "timeSensitive"
+                : "passive",
             }),
         data: {
           type: "ongoing_next_order",
@@ -418,10 +425,9 @@ export async function syncOngoingNextOrderActivity(
             : focusOrder && isPreparingStatus(focusOrder.status)
               ? "out_for_delivery"
               : "",
-          silent: !focusIsPending,
+          silent: !focusNeedsUrgentAlert,
         },
-        sound:
-          options.playSound || focusIsPending ? "default" : false,
+        sound: options.playSound && focusNeedsUrgentAlert ? "default" : false,
       },
       trigger: null,
     });

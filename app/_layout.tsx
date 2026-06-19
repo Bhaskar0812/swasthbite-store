@@ -439,7 +439,7 @@ export default function RootLayout() {
       tickOngoingOrderActivity(state.dashboard, { isOnline: state.isOnline }).catch(
         () => null,
       );
-    }, 10000);
+    }, 30000);
 
     return () => clearInterval(timerId);
   }, [token]);

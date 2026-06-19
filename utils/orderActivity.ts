@@ -113,6 +113,13 @@ export const isPendingAcceptance = (orderOrStatus: DashboardOrder | string) => {
   return isPendingStatus(status);
 };
 
+/** Full-screen alert + loud ring — instant orders and explicit pending only (not routine scheduled). */
+export const requiresBlockingIncomingAlert = (order: DashboardOrder) => {
+  const status = String(order.status || "").toLowerCase();
+  if (isInstantOrder(order)) return isPendingAcceptance(status);
+  return status === "pending";
+};
+
 export const isPreparingStatus = (status?: string) => {
   const value = String(status || "").toLowerCase();
   return ["preparing", "assigned", "accepted", "ready"].includes(value);
