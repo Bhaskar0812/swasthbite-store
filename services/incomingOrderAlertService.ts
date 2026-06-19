@@ -1,13 +1,25 @@
-import { Platform } from "react-native";
+import { Platform, Vibration } from "react-native";
 import * as Notifications from "expo-notifications";
 import {
   syncOngoingNextOrderActivity,
   syncOngoingNextOrderActivityFromOrder,
+  ONGOING_NOTIFICATION_ID,
 } from "services/ongoingOrderActivityService";
-import type { DashboardData } from "types";
+import {
+  PARTNER_CATEGORY_PENDING,
+} from "services/partnerNotificationActions";
+import type { DashboardData, DashboardOrder } from "types";
+import {
+  buildPartnerOrderQueue,
+  getOrderId,
+  isPendingAcceptance,
+} from "utils/orderActivity";
 
 const INCOMING_CHANNEL_ID = "incoming-orders";
-const INCOMING_NOTIFICATION_ID = "partner-incoming-order-alert";
+export const INCOMING_NOTIFICATION_ID = "partner-incoming-order-alert";
+
+const BURST_DEDUPE_MS = 2500;
+const RERING_MS = 45000;
 
 export type IncomingOrderInfo = {
   orderId: string;
@@ -19,9 +31,11 @@ export type IncomingOrderInfo = {
   totalAmount?: number;
 };
 
-const alertedOrders = new Set<string>();
-const recentAlertAt = new Map<string, number>();
-const ALERT_DEDUPE_MS = 10000;
+const pendingAcceptanceOrders = new Set<string>();
+const recentBurstAt = new Map<string, number>();
+const lastRingAt = new Map<string, number>();
+const overlayDismissedUntil = new Map<string, number>();
+const OVERLAY_DISMISS_MS = 30000;
 
 const normalizeText = (value?: unknown) => {
   const normalized = String(value ?? "").trim();
@@ -138,6 +152,7 @@ const ensureIncomingOrdersChannel = async () => {
     sound: "default",
     bypassDnd: true,
     enableVibrate: true,
+    lightColor: "#E23744",
   });
 };
 
@@ -151,22 +166,125 @@ const formatTimerText = (order: IncomingOrderInfo) => {
       })}`;
     }
   }
-  return "Tap to accept and start preparing";
+  return "Tap Accept to start preparing";
+};
+
+const buildNotificationTitle = (order: IncomingOrderInfo) => {
+  const shortId = order.orderId.slice(-6).toUpperCase();
+  if (order.deliveryMode === "instant") {
+    return `⚡ NEW INSTANT ORDER #${shortId}`;
+  }
+  return `🔔 NEW ORDER #${shortId} — Accept Now`;
 };
 
 const buildNotificationBody = (order: IncomingOrderInfo) => {
   const shortId = order.orderId.slice(-6).toUpperCase();
   const modeLabel =
     order.deliveryMode === "instant" ? "Instant order" : "New order";
-  return `${modeLabel} #${shortId} • ${order.packageName} • ${order.customerName} • ${formatTimerText(order)}`;
+  return `${modeLabel} • ${order.packageName} • ${order.customerName}\n${formatTimerText(order)}`;
 };
 
-const shouldSkipDuplicateAlert = (orderId: string) => {
+const shouldSkipBurstDedupe = (orderId: string) => {
   const now = Date.now();
-  const last = recentAlertAt.get(orderId) || 0;
-  if (now - last < ALERT_DEDUPE_MS) return true;
-  recentAlertAt.set(orderId, now);
+  const last = recentBurstAt.get(orderId) || 0;
+  if (now - last < BURST_DEDUPE_MS) return true;
+  recentBurstAt.set(orderId, now);
   return false;
+};
+
+const orderNeedsAcceptance = (order: IncomingOrderInfo) => {
+  const awaitingStatuses = new Set(["pending", "scheduled", "active", ""]);
+  const inProgressStatuses = new Set([
+    "preparing",
+    "accepted",
+    "assigned",
+    "out_for_delivery",
+    "picked_up",
+    "delivered",
+    "completed",
+    "cancelled",
+    "skipped",
+  ]);
+
+  return (
+    awaitingStatuses.has(order.status) ||
+    (order.deliveryMode === "instant" && !inProgressStatuses.has(order.status))
+  );
+};
+
+const triggerAlertHaptics = async () => {
+  try {
+    if (Platform.OS === "android") {
+      Vibration.vibrate([0, 500, 200, 500]);
+    } else {
+      Vibration.vibrate();
+    }
+  } catch {
+    // Non-fatal
+  }
+};
+
+export async function postIncomingOrderAlert(
+  order: IncomingOrderInfo,
+  options: { playSound?: boolean } = {},
+) {
+  const hasPermission = await ensureNotificationPermission();
+  if (!hasPermission) return;
+
+  await ensureIncomingOrdersChannel();
+
+  const playSound = options.playSound !== false;
+
+  await Notifications.scheduleNotificationAsync({
+    identifier: INCOMING_NOTIFICATION_ID,
+    content: {
+      title: buildNotificationTitle(order),
+      body: buildNotificationBody(order),
+      categoryIdentifier: PARTNER_CATEGORY_PENDING,
+      ...(Platform.OS === "android"
+        ? {
+            channelId: INCOMING_CHANNEL_ID,
+            priority: Notifications.AndroidNotificationPriority.MAX,
+            autoDismiss: false,
+            sticky: true,
+          }
+        : {
+            interruptionLevel: "timeSensitive",
+          }),
+      data: {
+        type: "order_new",
+        event: "order:new",
+        orderId: order.orderId,
+        order_id: order.orderId,
+        subscription_id: order.orderId,
+        delivery_mode: order.deliveryMode,
+        requires_acceptance: true,
+      },
+      sound: playSound ? "default" : false,
+    },
+    trigger: null,
+  });
+
+  if (playSound) {
+    await triggerAlertHaptics();
+  }
+};
+
+export const getPendingAcceptanceOrders = (
+  dashboard: DashboardData | null | undefined,
+): DashboardOrder[] => {
+  return buildPartnerOrderQueue(dashboard).filter((order) =>
+    isPendingAcceptance(order),
+  );
+};
+
+export const isIncomingOverlayDismissed = (orderId: string) => {
+  const until = overlayDismissedUntil.get(orderId) || 0;
+  return Date.now() < until;
+};
+
+export const dismissIncomingOverlayTemporarily = (orderId: string) => {
+  overlayDismissedUntil.set(orderId, Date.now() + OVERLAY_DISMISS_MS);
 };
 
 export async function alertIncomingOrder(
@@ -179,66 +297,114 @@ export async function alertIncomingOrder(
   const requiresAcceptance =
     payload?.requires_acceptance === true ||
     payload?.data?.requires_acceptance === true;
-  const awaitingStatuses = new Set([
-    "pending",
-    "scheduled",
-    "active",
-    "",
-  ]);
-  const inProgressStatuses = new Set([
-    "preparing",
-    "accepted",
-    "assigned",
-    "out_for_delivery",
-    "picked_up",
-    "delivered",
-    "completed",
-    "cancelled",
-    "skipped",
-  ]);
+
   const needsAcceptance =
-    requiresAcceptance ||
-    awaitingStatuses.has(order.status) ||
-    (order.deliveryMode === "instant" && !inProgressStatuses.has(order.status));
+    requiresAcceptance || orderNeedsAcceptance(order);
 
   if (!needsAcceptance) {
     await clearIncomingOrderAlert(order.orderId);
     return;
   }
 
-  const isFirstAlert = !alertedOrders.has(order.orderId);
-  if (!isFirstAlert) {
-    if (shouldSkipDuplicateAlert(order.orderId)) {
-      await syncOngoingNextOrderActivityFromOrder(order, dashboard, {
-        playSound: false,
-      });
-      return;
-    }
-    await syncOngoingNextOrderActivityFromOrder(order, dashboard, {
-      playSound: false,
-    });
+  if (shouldSkipBurstDedupe(order.orderId)) {
     return;
   }
 
-  if (shouldSkipDuplicateAlert(order.orderId)) {
-    return;
-  }
+  pendingAcceptanceOrders.add(order.orderId);
+  lastRingAt.set(order.orderId, Date.now());
 
-  alertedOrders.add(order.orderId);
-
+  await postIncomingOrderAlert(order, { playSound: true });
   await syncOngoingNextOrderActivityFromOrder(order, dashboard, {
     playSound: true,
     forceUpdate: true,
   });
 }
 
+export async function pulseIncomingOrderAlerts(
+  dashboard: DashboardData | null | undefined,
+) {
+  if (!dashboard?.is_online) return;
+
+  const pendingOrders = getPendingAcceptanceOrders(dashboard);
+  const pendingIds = new Set(pendingOrders.map((order) => getOrderId(order)));
+
+  for (const orderId of [...pendingAcceptanceOrders]) {
+    if (!pendingIds.has(orderId)) {
+      pendingAcceptanceOrders.delete(orderId);
+      overlayDismissedUntil.delete(orderId);
+      recentBurstAt.delete(orderId);
+      lastRingAt.delete(orderId);
+    }
+  }
+
+  if (!pendingOrders.length) {
+    await Notifications.dismissNotificationAsync(INCOMING_NOTIFICATION_ID).catch(
+      () => null,
+    );
+    return;
+  }
+
+  let presented: Notifications.Notification[] = [];
+  try {
+    presented = await Notifications.getPresentedNotificationsAsync();
+  } catch {
+    presented = [];
+  }
+
+  const hasIncomingAlert = presented.some(
+    (entry) => entry.request.identifier === INCOMING_NOTIFICATION_ID,
+  );
+  const hasOngoingAlert = presented.some(
+    (entry) => entry.request.identifier === ONGOING_NOTIFICATION_ID,
+  );
+
+  const focusOrder = pendingOrders[0];
+  const focusId = getOrderId(focusOrder);
+  const focusInfo = normalizeIncomingOrderPayload({
+    subscription_id: focusId,
+    orderId: focusId,
+    package_name: focusOrder.package_name || focusOrder.meal_name,
+    customer_name: focusOrder.user_name,
+    delivery_mode: focusOrder.delivery_mode,
+    status: focusOrder.status,
+    instant_deadline_at: focusOrder.instant_deadline_at,
+    requires_acceptance: true,
+  });
+
+  if (!focusInfo) return;
+
+  pendingAcceptanceOrders.add(focusId);
+
+  const lastRing = lastRingAt.get(focusId) || 0;
+  const shouldReRing = Date.now() - lastRing >= RERING_MS;
+  const needsIncomingPost = !hasIncomingAlert || shouldReRing;
+  const needsOngoingPost = !hasOngoingAlert || shouldReRing;
+
+  if (needsIncomingPost) {
+    await postIncomingOrderAlert(focusInfo, { playSound: shouldReRing || !hasIncomingAlert });
+    lastRingAt.set(focusId, Date.now());
+  }
+
+  if (needsOngoingPost) {
+    await syncOngoingNextOrderActivity(dashboard, {
+      playSound: shouldReRing || !hasOngoingAlert,
+      forceUpdate: true,
+      isOnline: dashboard.is_online,
+    });
+  }
+}
+
 export async function clearIncomingOrderAlert(orderId?: string) {
   if (orderId) {
-    alertedOrders.delete(orderId);
-    recentAlertAt.delete(orderId);
+    pendingAcceptanceOrders.delete(orderId);
+    recentBurstAt.delete(orderId);
+    lastRingAt.delete(orderId);
+    overlayDismissedUntil.delete(orderId);
   } else {
-    alertedOrders.clear();
-    recentAlertAt.clear();
+    pendingAcceptanceOrders.clear();
+    recentBurstAt.clear();
+    lastRingAt.clear();
+    overlayDismissedUntil.clear();
   }
 
   await Notifications.dismissNotificationAsync(INCOMING_NOTIFICATION_ID).catch(
@@ -246,7 +412,6 @@ export async function clearIncomingOrderAlert(orderId?: string) {
   );
 }
 
-/** Dismiss loud incoming alert only — keep ongoing live activity with updated status/timer */
 export async function transitionAcceptedOrder(
   payload: Record<string, any>,
   dashboard?: DashboardData | null,
@@ -258,19 +423,16 @@ export async function transitionAcceptedOrder(
     payload.status || payload.delivery_status || "preparing",
   ).toLowerCase();
 
-  alertedOrders.delete(order.orderId);
-  recentAlertAt.delete(order.orderId);
-  await Notifications.dismissNotificationAsync(INCOMING_NOTIFICATION_ID).catch(
-    () => null,
-  );
+  await clearIncomingOrderAlert(order.orderId);
 
   await syncOngoingNextOrderActivityFromOrder(
     { ...order, status: nextStatus },
     dashboard,
+    { forceUpdate: true, playSound: false },
   );
 
   if (dashboard) {
-    await syncOngoingNextOrderActivity(dashboard);
+    await syncOngoingNextOrderActivity(dashboard, { forceUpdate: true });
   }
 }
 
@@ -308,7 +470,7 @@ export async function handleIncomingOrderStatusChange(
   if (finalStatuses.has(status)) {
     await clearIncomingOrderAlert(order.orderId);
     if (dashboard) {
-      await syncOngoingNextOrderActivity(dashboard);
+      await syncOngoingNextOrderActivity(dashboard, { forceUpdate: true });
     }
   }
 }
@@ -316,7 +478,7 @@ export async function handleIncomingOrderStatusChange(
 export async function refreshIncomingOrderActivity(
   dashboard: DashboardData | null | undefined,
 ) {
-  await syncOngoingNextOrderActivity(dashboard);
+  await pulseIncomingOrderAlerts(dashboard);
 }
 
 const dashboardOrderToPayload = (order: any) => {
@@ -335,7 +497,6 @@ const dashboardOrderToPayload = (order: any) => {
   };
 };
 
-/** Fallback when socket/push missed — alert from dashboard polling data */
 export async function syncPendingIncomingOrdersFromDashboard(
   dashboard: DashboardData | null | undefined,
 ) {
@@ -357,11 +518,8 @@ export async function syncPendingIncomingOrdersFromDashboard(
   });
 
   for (const order of pendingOrders) {
-    const orderId = String(
-      (order as any)?.order_id || (order as any)?.subscription_id || "",
-    ).trim();
-    if (!orderId || alertedOrders.has(orderId)) continue;
-
     await alertIncomingOrder(dashboardOrderToPayload(order), dashboard);
   }
+
+  await pulseIncomingOrderAlerts(dashboard);
 }

@@ -7,19 +7,10 @@ import type { DashboardData, DashboardOrder } from "types";
 import {
   buildMultiOrderSummary,
   buildPartnerOrderQueue,
-  formatCountdown,
-  formatDeliveryDateLabel,
-  formatDueTime,
-  formatSlotLabel,
-  formatStatusLabel,
-  getInstantDeadline,
-  getOrderCustomerName,
+  buildLiveOrderPresentation,
   getOrderId,
-  getOrderTitle,
-  isInstantOrder,
   isPendingAcceptance,
   isPreparingStatus,
-  pickFocusOrder,
   resolveOrderApiIds,
   sortActiveOrdersForBoard,
   getActionableOrders,
@@ -28,11 +19,6 @@ import {
   getPartnerCategoryForStatus,
   ensurePartnerNotificationSetup,
 } from "services/partnerNotificationActions";
-import {
-  formatStoreProgressSubtitle,
-  resolveStoreOrderProgress,
-  formatProgressStepLine,
-} from "utils/orderProgressSteps";
 
 const ONGOING_CHANNEL_ID = "ongoing-orders";
 export const ONGOING_NOTIFICATION_ID = "partner-next-order-activity";
@@ -41,6 +27,22 @@ const IOS_ACTIVITY_ID_KEY = "@partner_next_order_live_activity_id";
 let lastOngoingBody = "";
 let lastOngoingTitle = "";
 let lastOngoingCategory = "";
+let cachedIosActivityId: string | null = null;
+
+const LIVE_ACTIVITY_COLORS = {
+  instant: {
+    backgroundColor: "#B45309",
+    progressViewTint: "#FDE68A",
+  },
+  scheduled: {
+    backgroundColor: "#1D4ED8",
+    progressViewTint: "#93C5FD",
+  },
+  neutral: {
+    backgroundColor: "#334155",
+    progressViewTint: "#CBD5E1",
+  },
+} as const;
 
 const ensureAndroidChannel = async () => {
   if (Platform.OS !== "android") return;
@@ -48,11 +50,12 @@ const ensureAndroidChannel = async () => {
   await Notifications.setNotificationChannelAsync(ONGOING_CHANNEL_ID, {
     name: "Live Order Activity",
     description: "Always-on order status and quick actions",
-    importance: Notifications.AndroidImportance.HIGH,
+    importance: Notifications.AndroidImportance.MAX,
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-    sound: null,
-    enableVibrate: false,
-    bypassDnd: false,
+    sound: "default",
+    enableVibrate: true,
+    bypassDnd: true,
+    vibrationPattern: [0, 250, 150, 250],
   });
 };
 
@@ -96,6 +99,7 @@ type DrawerPayload = {
   categoryIdentifier: string;
   focusOrder: DashboardOrder | null;
   activeCount: number;
+  presentation?: ReturnType<typeof buildLiveOrderPresentation>;
 };
 
 const buildDrawerPayload = (
@@ -121,76 +125,55 @@ const buildDrawerPayload = (
 
   if (!focusOrder) {
     return {
-      title: "Swasth Bite Partner • Online",
-      body: "Waiting for orders\nTap to open dashboard",
-      subtitle: "No active orders",
+      title: "Swasth Bite Partner · Online",
+      body: "Waiting for orders\nTap kitchen board to view schedule",
+      subtitle: "No active orders right now",
       categoryIdentifier: getPartnerCategoryForStatus(),
       focusOrder: null,
       activeCount: 0,
     };
   }
 
-  const shortId = getOrderId(focusOrder).slice(-6).toUpperCase();
-  const customer = getOrderCustomerName(focusOrder);
-  const meal = getOrderTitle(focusOrder);
-  const status = formatStatusLabel(focusOrder.status);
-  const instant = isInstantOrder(focusOrder);
-  const pending = isPendingAcceptance(focusOrder);
-  const countdown = instant
-    ? formatCountdown(getInstantDeadline(focusOrder), now, { withSeconds: true })
-    : "";
-
-  const whenLine = instant
-    ? countdown
-      ? `⏱ ${countdown} left`
-      : "Instant order"
-    : `${formatDeliveryDateLabel(focusOrder, now)} • ${formatSlotLabel(focusOrder.slot)}`;
-
-  const statsLine = [
-    stats.pending ? `${stats.pending} pending` : "",
-    stats.preparing ? `${stats.preparing} preparing` : "",
-    stats.outForDelivery ? `${stats.outForDelivery} out` : "",
-  ]
-    .filter(Boolean)
-    .join(" • ");
-
-  const title = pending
-    ? instant
-      ? "⚡ Instant order • Accept now"
-      : "🆕 New order • Accept now"
-    : `NOW • ${status}`;
-
-  const lead = pending
-    ? `#${shortId} • ${customer}\n${meal}\n${whenLine}`
-    : `#${shortId} • ${customer}\n${meal}\n${whenLine}\nDue ${formatDueTime(focusOrder)}`;
+  const presentation = buildLiveOrderPresentation(focusOrder, now, {
+    queueCount: queue.length,
+  });
 
   const queueLines = queue
     .slice(1, 3)
     .map((order, index) => {
+      const preview = buildLiveOrderPresentation(order, now);
       const id = getOrderId(order).slice(-6).toUpperCase();
-      return `Next ${index + 1}: #${id} • ${formatStatusLabel(order.status)} • ${getOrderTitle(order)}`;
+      return `Next ${index + 1}: #${id} · ${preview.subtitle}`;
     });
 
+  const statsLine = [
+    stats.pending ? `${stats.pending} to accept` : "",
+    stats.preparing ? `${stats.preparing} preparing` : "",
+    stats.outForDelivery ? `${stats.outForDelivery} out` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   const body = [
-    lead,
-    formatStoreProgressSubtitle(focusOrder.status),
-    formatProgressStepLine(resolveStoreOrderProgress(focusOrder.status)),
-    statsLine ? `Queue: ${statsLine}` : "",
-    queue.length > 1 ? `${queue.length - 1} more in queue` : "",
+    presentation.bodyLead,
+    presentation.bodyDetail,
+    statsLine ? `Kitchen queue: ${statsLine}` : "",
+    queue.length > 1 ? `${queue.length - 1} more waiting` : "",
     ...queueLines,
   ]
     .filter(Boolean)
     .join("\n");
 
   return {
-    title,
+    title: isPendingAcceptance(focusOrder)
+      ? `🔔 NEW ORDER · ${presentation.title}`
+      : presentation.title,
     body,
-    subtitle:
-      formatStoreProgressSubtitle(focusOrder.status, customer) ||
-      `${status} • ${customer}`,
+    subtitle: presentation.subtitle,
     categoryIdentifier: getPartnerCategoryForStatus(focusOrder.status),
     focusOrder,
     activeCount: queue.length || stats.active,
+    presentation,
   };
 };
 
@@ -201,6 +184,7 @@ const toLiveActivityState = (
 ): LiveActivity.LiveActivityState => {
   const drawer = buildDrawerPayload(dashboard, isOnline, now);
   const focusOrder = drawer.focusOrder;
+  const presentation = drawer.presentation;
 
   if (!isOnline) {
     return {
@@ -209,26 +193,45 @@ const toLiveActivityState = (
     };
   }
 
-  if (!focusOrder) {
+  if (!focusOrder || !presentation) {
     return {
       title: "Store online",
-      subtitle: "Waiting for orders",
+      subtitle: "Waiting for scheduled & instant orders",
     };
   }
 
   const state: LiveActivity.LiveActivityState = {
-    title: drawer.title.replace(/^NOW • /, ""),
-    subtitle: drawer.subtitle || getOrderTitle(focusOrder),
+    title: presentation.title,
+    subtitle: presentation.subtitle,
   };
 
-  if (isInstantOrder(focusOrder)) {
-    const deadline = getInstantDeadline(focusOrder);
-    if (deadline > now) {
-      state.progressBar = { date: deadline };
-    }
+  if (presentation.progressDate && presentation.progressDate > now) {
+    state.progressBar = { date: presentation.progressDate };
+  } else if (
+    typeof presentation.progressValue === "number" &&
+    presentation.progressValue > 0
+  ) {
+    state.progressBar = { progress: presentation.progressValue };
   }
 
   return state;
+};
+
+const getLiveActivityConfig = (
+  order: DashboardOrder | null,
+  orderId: string,
+  accent: "instant" | "scheduled" | "neutral" = "scheduled",
+): LiveActivity.LiveActivityConfig => {
+  const palette = LIVE_ACTIVITY_COLORS[accent] || LIVE_ACTIVITY_COLORS.scheduled;
+  return {
+    deepLinkUrl: orderId ? `/order/${orderId}` : "/(tabs)/orders",
+    backgroundColor: palette.backgroundColor,
+    titleColor: "#FFFFFF",
+    subtitleColor: "#F8FAFC",
+    progressViewTint: palette.progressViewTint,
+    progressViewLabelColor: "#FFFFFF",
+    timerType: "digital",
+  };
 };
 
 const syncIosLiveActivity = async (
@@ -237,37 +240,39 @@ const syncIosLiveActivity = async (
 ) => {
   if (!canUseIosLiveActivity()) return;
 
-  const existingActivityId = await AsyncStorage.getItem(IOS_ACTIVITY_ID_KEY);
+  const storedId = cachedIosActivityId || (await AsyncStorage.getItem(IOS_ACTIVITY_ID_KEY));
   const orders = sortActiveOrdersForBoard(getActionableOrders(dashboard));
+  const drawer = buildDrawerPayload(dashboard, isOnline);
   const state = toLiveActivityState(dashboard, isOnline);
-  const focusOrder = pickFocusOrder(dashboard);
+  const focusOrder = drawer.focusOrder;
   const orderId = focusOrder ? getOrderId(focusOrder) : "";
-
-  const config: LiveActivity.LiveActivityConfig = {
-    deepLinkUrl: orderId ? `/order/${orderId}` : "/(tabs)/orders",
-    backgroundColor: "#0B57D0",
-    titleColor: "#FFFFFF",
-    subtitleColor: "#DDE8FF",
-    progressViewTint: "#FFD166",
-    progressViewLabelColor: "#FFFFFF",
-    timerType: "digital",
-  };
+  const accent = drawer.presentation?.accent || "neutral";
+  const config = getLiveActivityConfig(focusOrder, orderId, accent);
 
   if (!isOnline || !orders.length) {
-    if (existingActivityId) {
-      await LiveActivity.stopActivity(existingActivityId, state);
+    if (storedId) {
+      await LiveActivity.stopActivity(storedId, state).catch(() => null);
     }
+    cachedIosActivityId = null;
     await AsyncStorage.removeItem(IOS_ACTIVITY_ID_KEY);
     return;
   }
 
-  if (existingActivityId) {
-    await LiveActivity.updateActivity(existingActivityId, state);
-    return;
+  if (storedId) {
+    try {
+      await LiveActivity.updateActivity(storedId, state);
+      cachedIosActivityId = storedId;
+      return;
+    } catch {
+      await LiveActivity.stopActivity(storedId, state).catch(() => null);
+      cachedIosActivityId = null;
+      await AsyncStorage.removeItem(IOS_ACTIVITY_ID_KEY);
+    }
   }
 
   const startedId = LiveActivity.startActivity(state, config);
   if (startedId) {
+    cachedIosActivityId = startedId;
     await AsyncStorage.setItem(IOS_ACTIVITY_ID_KEY, startedId);
   }
 };
@@ -349,6 +354,16 @@ export async function syncOngoingNextOrderActivity(
       await syncIosLiveActivity(dashboard, isOnline);
     }
 
+    const skipDuplicateIosBanner =
+      Platform.OS === "ios" &&
+      canUseIosLiveActivity() &&
+      Boolean(drawer.focusOrder) &&
+      !(drawer.focusOrder && isPendingAcceptance(drawer.focusOrder));
+
+    if (Platform.OS !== "android" && skipDuplicateIosBanner) {
+      return;
+    }
+
     if (Platform.OS !== "android" && Platform.OS !== "ios") return;
 
     await ensureAndroidChannel();
@@ -356,8 +371,12 @@ export async function syncOngoingNextOrderActivity(
     const { title, body, subtitle, categoryIdentifier, focusOrder, activeCount } =
       drawer;
 
+    const focusIsPending =
+      Boolean(focusOrder) && isPendingAcceptance(focusOrder as DashboardOrder);
+
     const unchanged =
       !options.forceUpdate &&
+      !focusIsPending &&
       title === lastOngoingTitle &&
       body === lastOngoingBody &&
       categoryIdentifier === lastOngoingCategory;
@@ -369,6 +388,7 @@ export async function syncOngoingNextOrderActivity(
 
     const orderId = focusOrder ? getOrderId(focusOrder) : "";
     const altOrderIds = focusOrder ? resolveOrderApiIds(focusOrder).join(",") : "";
+    const iosInterruptionLevel = focusOrder ? "timeSensitive" : "passive";
 
     await Notifications.scheduleNotificationAsync({
       identifier: ONGOING_NOTIFICATION_ID,
@@ -385,7 +405,7 @@ export async function syncOngoingNextOrderActivity(
               sticky: true,
             }
           : {
-              interruptionLevel: "passive",
+              interruptionLevel: iosInterruptionLevel,
             }),
         data: {
           type: "ongoing_next_order",
@@ -398,9 +418,10 @@ export async function syncOngoingNextOrderActivity(
             : focusOrder && isPreparingStatus(focusOrder.status)
               ? "out_for_delivery"
               : "",
-          silent: true,
+          silent: !focusIsPending,
         },
-        sound: options.playSound ? "default" : false,
+        sound:
+          options.playSound || focusIsPending ? "default" : false,
       },
       trigger: null,
     });
@@ -413,6 +434,7 @@ export async function clearOngoingNextOrderActivity() {
   lastOngoingBody = "";
   lastOngoingTitle = "";
   lastOngoingCategory = "";
+  cachedIosActivityId = null;
 
   if (Platform.OS === "ios") {
     if (canUseIosLiveActivity()) {

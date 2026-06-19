@@ -2,7 +2,7 @@
   "expo": {
     "name": "SwasthBite Partner",
     "slug": "swasthbite-partner",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "scheme": "swasthbite-partner",
     "orientation": "portrait",
     "icon": "./assets/icon.png",

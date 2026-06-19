@@ -28,9 +28,9 @@ import {
   isInstantOrder,
   isPendingAcceptance,
   isPreparingStatus,
+  sortActiveOrdersForBoard,
   SLOT_FILTERS,
   SlotFilter,
-  sortStoreOrdersByDateAndSlot,
 } from "utils/orderActivity";
 import OrderProgressStepper from "components/OrderProgressStepper";
 import { resolveStoreOrderProgress } from "utils/orderProgressSteps";
@@ -183,6 +183,18 @@ const OrderActivityCard = ({
       {order.user_phone ? (
         <Text className="text-[11px] text-slate-400 mt-0.5">{order.user_phone}</Text>
       ) : null}
+      {(order.delivery_address?.full_address ||
+        order.delivery_address?.address ||
+        order.address_snapshot?.full_address) ? (
+        <View className="flex-row items-start mt-2">
+          <Ionicons name="location-outline" size={12} color="#64748B" style={{ marginTop: 2 }} />
+          <Text className="text-[11px] text-slate-500 ml-1 flex-1" numberOfLines={2}>
+            {order.delivery_address?.full_address ||
+              order.delivery_address?.address ||
+              order.address_snapshot?.full_address}
+          </Text>
+        </View>
+      ) : null}
 
       <View
         className="mt-3 rounded-2xl px-3 py-3"
@@ -293,9 +305,7 @@ export default function LiveOrderActivityBoard({
 
   const orders = useMemo(
     () =>
-      sortStoreOrdersByDateAndSlot(filterOrdersBySlot(dayOrders, slotFilter), {
-        instantFirst: true,
-      }),
+      sortActiveOrdersForBoard(filterOrdersBySlot(dayOrders, slotFilter)),
     [dayOrders, slotFilter],
   );
 
@@ -389,6 +399,27 @@ export default function LiveOrderActivityBoard({
           <StatPill label="Out" value={outCount} color="#047857" bg="rgba(255,255,255,0.92)" />
         </View>
       </View>
+
+      {pendingCount > 0 ? (
+        <View
+          style={{
+            backgroundColor: "#DC2626",
+            paddingHorizontal: 16,
+            paddingVertical: 12,
+          }}
+        >
+          <Text
+            style={{
+              color: "#FFF",
+              fontSize: 14,
+              fontWeight: "900",
+              textAlign: "center",
+            }}
+          >
+            🔔 {pendingCount} NEW ORDER{pendingCount === 1 ? "" : "S"} WAITING — ACCEPT NOW
+          </Text>
+        </View>
+      ) : null}
 
       <ScrollView
         horizontal

@@ -131,8 +131,14 @@ export async function handlePartnerNotificationResponse(
   const data = response.notification.request.content.data as
     | Record<string, any>
     | undefined;
-  const type = String(data?.type || "").toLowerCase();
-  const orderId = String(data?.orderId || data?.order_id || "").trim();
+  const type = String(data?.type || data?.event || "").toLowerCase();
+  const orderId = String(
+    data?.orderId ||
+      data?.order_id ||
+      data?.subscription_id ||
+      data?.subscriptionId ||
+      "",
+  ).trim();
   const altIds = String(data?.altOrderIds || "")
     .split(",")
     .map((value) => value.trim())
@@ -172,6 +178,51 @@ export async function handlePartnerNotificationResponse(
           "Please try from the app",
         position: "top",
       });
+      return true;
+    }
+  }
+
+  if (
+    type === "order_new" ||
+    type === "order:new"
+  ) {
+    if (
+      actionId === ACTION_START_PREPARING ||
+      actionId === Notifications.DEFAULT_ACTION_IDENTIFIER
+    ) {
+      if (!orderId) return false;
+
+      if (actionId === ACTION_START_PREPARING) {
+        try {
+          await updateOrderStatusFromNotification(
+            orderId,
+            "preparing",
+            options.dashboard,
+          );
+          await options.onRefresh();
+          Toast.show({
+            type: "success",
+            text1: "Order accepted",
+            text2: "Preparing started",
+            position: "top",
+          });
+          options.navigateToOrder(orderId, altIds.length ? altIds : undefined);
+          return true;
+        } catch (error: any) {
+          Toast.show({
+            type: "error",
+            text1: "Accept failed",
+            text2:
+              error?.response?.data?.message ||
+              error?.message ||
+              "Please try from the app",
+            position: "top",
+          });
+          return true;
+        }
+      }
+
+      options.navigateToOrder(orderId, altIds.length ? altIds : undefined);
       return true;
     }
   }

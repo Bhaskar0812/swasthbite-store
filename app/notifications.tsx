@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useCallback } from 'react';
 import { View, Text, FlatList, RefreshControl, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -6,6 +6,19 @@ import { router } from 'expo-router';
 import { useNotificationStore } from 'store/notificationStore';
 import { Colors } from 'constants/theme';
 import type { Notification } from 'types';
+
+const resolveOrderId = (data: Record<string, any> = {}) => {
+  const candidates = [
+    data.orderId,
+    data.order_id,
+    data.subscription_id,
+    data.subscriptionId,
+    data._id,
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+  return Array.from(new Set(candidates));
+};
 
 export default function NotificationsScreen() {
   const { notifications, loading, fetchNotifications, markRead, markAllRead } =
@@ -15,11 +28,31 @@ export default function NotificationsScreen() {
     fetchNotifications();
   }, []);
 
+  const handlePress = useCallback((item: Notification) => {
+    if (!item.is_read) markRead(item._id);
+
+    const data = (item.data || {}) as Record<string, any>;
+    const orderIds = resolveOrderId(data);
+    if (orderIds.length) {
+      router.push({
+        pathname: '/order/[id]' as any,
+        params: {
+          id: orderIds[0],
+          alts: orderIds.join(','),
+          openAt: String(Date.now()),
+        },
+      });
+      return;
+    }
+
+    if (data.tab === 'bulk') {
+      router.push('/(tabs)/bulk' as any);
+    }
+  }, [markRead]);
+
   const renderItem = ({ item }: { item: Notification }) => (
     <TouchableOpacity
-      onPress={() => {
-        if (!item.is_read) markRead(item._id);
-      }}
+      onPress={() => handlePress(item)}
       className="bg-white px-4 py-3.5 border-b border-divider"
       style={{ opacity: item.is_read ? 0.7 : 1 }}
     >

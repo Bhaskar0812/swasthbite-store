@@ -1,4 +1,8 @@
 import type { DashboardData, DashboardOrder } from "types";
+import {
+  formatProgressStepLine,
+  resolveStoreOrderProgress,
+} from "./orderProgressSteps";
 
 export const FINAL_STATUSES = new Set([
   "delivered",
@@ -755,5 +759,184 @@ export const buildMultiOrderSummary = (
     lines,
     focusOrder,
     stats,
+  };
+};
+
+const parseIstTimeOnDateKey = (dateKey: string, timeLabel: string) => {
+  const normalized = String(timeLabel || "").trim();
+  if (!dateKey || !normalized) return 0;
+
+  const match = normalized.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+  if (!match) return 0;
+
+  let hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const meridiem = String(match[3] || "AM").toUpperCase();
+
+  if (meridiem === "PM" && hours !== 12) hours += 12;
+  if (meridiem === "AM" && hours === 12) hours = 0;
+
+  const iso = `${dateKey}T${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00+05:30`;
+  const parsed = new Date(iso).getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
+};
+
+export const getSlotWindowTimestamps = (
+  order: DashboardOrder,
+  now = Date.now(),
+) => {
+  const slot = String(order.slot || "").trim().toLowerCase();
+  const meta = SLOT_META[slot];
+  const dateKey = getOrderDeliveryDateKey(order, now) || getTodayDateKey(now);
+
+  if (!meta) {
+    const fallback = getOrderDeliveryTimestamp(order) || now;
+    return {
+      start: fallback,
+      end: fallback,
+      deliverByLabel: formatDeliverByTime(order),
+    };
+  }
+
+  const [startRaw, endRaw] = String(meta.time || "")
+    .split("–")
+    .map((part) => part.trim());
+  const endLabel = endRaw || meta.deliverBy;
+  const startLabel =
+    startRaw && /(AM|PM)/i.test(startRaw)
+      ? startRaw
+      : endLabel.replace(/(AM|PM)/i, "").trim()
+        ? `${startRaw} ${String(endLabel.match(/(AM|PM)/i)?.[0] || "AM")}`
+        : startRaw;
+
+  return {
+    start: parseIstTimeOnDateKey(dateKey, startLabel),
+    end: parseIstTimeOnDateKey(dateKey, endLabel),
+    deliverByLabel: meta.deliverBy,
+  };
+};
+
+export const getScheduledDeliverByTimestamp = (
+  order: DashboardOrder,
+  now = Date.now(),
+) => {
+  const { end } = getSlotWindowTimestamps(order, now);
+  if (end > 0) return end;
+
+  const ts = getOrderDeliveryTimestamp(order);
+  return ts > 0 ? ts : 0;
+};
+
+export const getSlotProgressValue = (
+  order: DashboardOrder,
+  now = Date.now(),
+) => {
+  const { start, end } = getSlotWindowTimestamps(order, now);
+  if (!start || !end || end <= start) return 0;
+  return Math.min(1, Math.max(0, (now - start) / (end - start)));
+};
+
+export const formatCompactItemLine = (order: DashboardOrder) => {
+  const lines = resolveOrderLineItems(order);
+  if (!lines.length) return getOrderTitle(order);
+  if (lines.length === 1) {
+    const line = lines[0];
+    return line.qty > 1 ? `${line.name} ×${line.qty}` : line.name;
+  }
+  const preview = lines
+    .slice(0, 2)
+    .map((line) => (line.qty > 1 ? `${line.name} ×${line.qty}` : line.name))
+    .join(", ");
+  return lines.length > 2 ? `${preview} +${lines.length - 2}` : preview;
+};
+
+export type LiveOrderPresentation = {
+  title: string;
+  subtitle: string;
+  bodyLead: string;
+  bodyDetail: string;
+  progressDate?: number;
+  progressValue?: number;
+  accent: "instant" | "scheduled" | "neutral";
+};
+
+export const buildLiveOrderPresentation = (
+  order: DashboardOrder,
+  now = Date.now(),
+  options: { queueCount?: number } = {},
+): LiveOrderPresentation => {
+  const customer = getOrderCustomerName(order);
+  const itemLine = formatCompactItemLine(order);
+  const progress = resolveStoreOrderProgress(order.status);
+  const stepLine = formatProgressStepLine(progress);
+  const pending = isPendingAcceptance(order);
+  const instant = isInstantOrder(order);
+  const queueCount = Number(options.queueCount || 0);
+
+  if (instant) {
+    const deadline = getInstantDeadline(order);
+    const countdown = formatCountdown(deadline, now, { withSeconds: true });
+    const statusLabel = pending
+      ? "Accept now"
+      : isPreparingStatus(order.status)
+        ? "Preparing"
+        : isOutForDeliveryStatus(order.status)
+          ? "Out for delivery"
+          : formatStatusLabel(order.status);
+
+    return {
+      title: `⚡ INSTANT · ${statusLabel}`,
+      subtitle: `${itemLine} · ${customer}`,
+      bodyLead: `#${getOrderId(order).slice(-6).toUpperCase()} · ${itemLine}`,
+      bodyDetail: [
+        countdown ? `⏱ ${countdown} remaining` : "Deliver immediately",
+        stepLine,
+        queueCount > 1 ? `${queueCount} orders in kitchen queue` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      progressDate: deadline > now ? deadline : undefined,
+      accent: "instant",
+    };
+  }
+
+  const slotMeta = SLOT_META[String(order.slot || "").trim().toLowerCase()];
+  const slotIcon = slotMeta?.icon || "📅";
+  const slotLabel = slotMeta?.label || formatSlotLabel(order.slot);
+  const deliverBy = formatDeliverByTime(order);
+  const deliverByTs = getScheduledDeliverByTimestamp(order, now);
+  const countdown = deliverByTs
+    ? formatCountdown(deliverByTs, now, { withSeconds: false })
+    : "";
+  const slotProgress = getSlotProgressValue(order, now);
+
+  const statusLabel = pending
+    ? "Accept order"
+    : isPreparingStatus(order.status)
+      ? "Preparing"
+      : isOutForDeliveryStatus(order.status)
+        ? "Ready · hand over"
+        : formatStatusLabel(order.status);
+
+  const title = `${slotIcon} ${slotLabel} ${deliverBy} · ${statusLabel}`;
+  const subtitle = `${itemLine} · ${customer}`;
+
+  return {
+    title,
+    subtitle,
+    bodyLead: `#${getOrderId(order).slice(-6).toUpperCase()} · ${itemLine}`,
+    bodyDetail: [
+      `${formatDeliveryDateLabel(order, now)} · ${slotLabel} slot`,
+      countdown ? `⏱ ${countdown} until ${deliverBy}` : `Deliver by ${deliverBy}`,
+      `Slot progress ${Math.round(slotProgress * 100)}%`,
+      stepLine,
+      queueCount > 1 ? `${queueCount} orders in this slot window` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    progressDate: deliverByTs > now ? deliverByTs : undefined,
+    progressValue:
+      !pending && slotProgress > 0 && slotProgress < 1 ? slotProgress : undefined,
+    accent: "scheduled",
   };
 };

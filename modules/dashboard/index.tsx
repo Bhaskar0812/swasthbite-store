@@ -284,6 +284,7 @@ export default function DashboardScreen() {
               value={dashboard?.active_subscriptions || 0}
               icon="people"
               color={Colors.info}
+              onPress={() => router.push('/subscriptions')}
             />
           </View>
           <View className="flex-row w-full mb-3">

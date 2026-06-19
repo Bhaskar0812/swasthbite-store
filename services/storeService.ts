@@ -368,4 +368,8 @@ export const storeService = {
     const res = await api.put(`/store/orders/${orderId}/reschedule-delivery`, payload);
     return res.data;
   },
+  getSubscriptions: async (status: string = "active") => {
+    const res = await api.get("/store/subscriptions", { params: { status } });
+    return res.data;
+  },
 };

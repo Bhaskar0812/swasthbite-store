@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, ActivityIndicator, Image, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, ActivityIndicator, Image, Modal, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -110,6 +110,10 @@ export default function StoreOrderDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [updatingKey, setUpdatingKey] = useState<string | null>(null);
   const [resolvedOrderId, setResolvedOrderId] = useState('');
+  const [rescheduleTarget, setRescheduleTarget] = useState<{
+    delivery: any;
+    deliveryDateStr: string;
+  } | null>(null);
 
   const apiOrderId = useMemo(
     () => String(order?._id || resolvedOrderId || id || '').trim(),
@@ -564,31 +568,8 @@ export default function StoreOrderDetailScreen() {
                       },
                     ]);
                   };
-                  const rescheduleDeliveryForCustomer = async () => {
-                    const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
-                    Alert.alert('Reschedule delivery', `Move to tomorrow (${tomorrow})?`, [
-                      { text: 'Cancel', style: 'cancel' },
-                      {
-                        text: 'Reschedule',
-                        onPress: async () => {
-                          try {
-                            setUpdatingKey('reschedule-' + delivery._id);
-                            const res = await storeService.rescheduleDelivery(String(order._id), {
-                              date: deliveryDateStr,
-                              slot: delivery.slot,
-                              new_date: tomorrow,
-                              new_slot: delivery.slot,
-                            });
-                            setOrder(res.data?.subscription || res.data || order);
-                            Alert.alert('Rescheduled', 'Delivery date updated for customer.');
-                          } catch (error: any) {
-                            Alert.alert('Error', error?.response?.data?.message || 'Failed to reschedule delivery');
-                          } finally {
-                            setUpdatingKey(null);
-                          }
-                        },
-                      },
-                    ]);
+                  const rescheduleDeliveryForCustomer = () => {
+                    setRescheduleTarget({ delivery, deliveryDateStr });
                   };
                   const deliveryLineItems = getDeliveryLineItems(delivery, order);
                   return (
@@ -601,7 +582,7 @@ export default function StoreOrderDetailScreen() {
                               : (delivery.meal_name || order.meal_name || 'Meal details')}
                           </Text>
                           <Text className="text-base text-textSecondary mt-1">
-                            {formatSlotLabel(delivery.slot)} • {formatSlotTime(delivery.slot, delivery.delivery_time)}
+                            {formatDateLabel(deliveryDateStr)} • {formatSlotLabel(delivery.slot)} • {formatSlotTime(delivery.slot, delivery.delivery_time)}
                           </Text>
                         </View>
                         <View className="px-3 py-1 rounded-full" style={{ backgroundColor: meta.bg }}>
@@ -667,10 +648,6 @@ export default function StoreOrderDetailScreen() {
                           </TouchableOpacity>
                         </View>
                       ) : null}
-
-                      <Text className="text-base text-textTertiary mt-2">
-                        Status updates are managed from the dashboard.
-                      </Text>
                     </View>
                   );
                 })}
@@ -684,6 +661,57 @@ export default function StoreOrderDetailScreen() {
           </View>
         )}
       </ScrollView>
+
+      <Modal
+        visible={Boolean(rescheduleTarget)}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setRescheduleTarget(null)}
+      >
+        <View className="flex-1 justify-end bg-black/40">
+          <View className="bg-white rounded-t-3xl px-4 pt-4 pb-8">
+            <Text className="text-lg font-bold text-textPrimary mb-1">Reschedule delivery</Text>
+            <Text className="text-sm text-textSecondary mb-4">
+              Pick a new date for {formatSlotLabel(rescheduleTarget?.delivery?.slot)} slot
+            </Text>
+            {Array.from({ length: 7 }, (_, index) => {
+              const date = new Date();
+              date.setDate(date.getDate() + index + 1);
+              const iso = date.toISOString().split('T')[0];
+              return (
+                <TouchableOpacity
+                  key={iso}
+                  className="py-3 border-b border-divider"
+                  onPress={async () => {
+                    if (!rescheduleTarget) return;
+                    try {
+                      setUpdatingKey('reschedule-' + rescheduleTarget.delivery._id);
+                      const res = await storeService.rescheduleDelivery(String(order._id), {
+                        date: rescheduleTarget.deliveryDateStr,
+                        slot: rescheduleTarget.delivery.slot,
+                        new_date: iso,
+                        new_slot: rescheduleTarget.delivery.slot,
+                      });
+                      setOrder(res.data?.subscription || res.data || order);
+                      setRescheduleTarget(null);
+                      Alert.alert('Rescheduled', `Moved to ${formatDateLabel(iso)}.`);
+                    } catch (error: any) {
+                      Alert.alert('Error', error?.response?.data?.message || 'Failed to reschedule delivery');
+                    } finally {
+                      setUpdatingKey(null);
+                    }
+                  }}
+                >
+                  <Text className="text-base font-semibold text-textPrimary">{formatDateLabel(iso)}</Text>
+                </TouchableOpacity>
+              );
+            })}
+            <TouchableOpacity onPress={() => setRescheduleTarget(null)} className="mt-4 py-3 items-center">
+              <Text className="text-base font-semibold text-textSecondary">Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
