@@ -453,19 +453,23 @@ export const getOrderDeliveryTimestamp = (order: DashboardOrder) => {
   return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
 };
 
+export const toISTDateKey = (value?: string | Date | null) => {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+};
+
 export const getOrderDeliveryDateKey = (order: DashboardOrder, now = Date.now()) => {
   const ts = getOrderDeliveryTimestamp(order);
   if (!ts) return "";
-  return new Date(ts).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+  return toISTDateKey(ts);
 };
 
-export const getTodayDateKey = (now = Date.now()) =>
-  new Date(now).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+export const getTodayDateKey = (now = Date.now()) => toISTDateKey(now);
 
 export const getTomorrowDateKey = (now = Date.now()) =>
-  new Date(now + 86400000).toLocaleDateString("en-CA", {
-    timeZone: "Asia/Kolkata",
-  });
+  toISTDateKey(now + 86400000);
 
 export const formatSlotLabel = (slot?: string) => {
   const normalized = String(slot || "").trim().toLowerCase();

@@ -9,7 +9,7 @@ import { Colors } from 'constants/theme';
 import api from 'services/api';
 import { storeService } from 'services/storeService';
 import { pickImageUrl, resolveImageUrl } from 'utils/image';
-import { getOrderLineItems, getOrderQuantity } from 'utils/orderActivity';
+import { getOrderLineItems, getOrderQuantity, getTodayDateKey, toISTDateKey } from 'utils/orderActivity';
 
 const STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
   scheduled: { label: 'Scheduled', color: Colors.textSecondary, bg: '#F3F4F6' },
@@ -222,7 +222,7 @@ export default function StoreOrderDetailScreen() {
 
   const markMissedDelivered = async (delivery: any) => {
     if (!apiOrderId) return;
-    const deliveryDateStr = new Date(delivery.date).toISOString().split('T')[0];
+    const deliveryDateStr = toISTDateKey(delivery.date);
     try {
       setUpdatingKey('delivered-' + delivery._id);
       const res = await storeService.markDeliveryDelivered(apiOrderId, {
@@ -241,7 +241,7 @@ export default function StoreOrderDetailScreen() {
 
   const skipMissedDelivery = async (delivery: any) => {
     if (!apiOrderId) return;
-    const deliveryDateStr = new Date(delivery.date).toISOString().split('T')[0];
+    const deliveryDateStr = toISTDateKey(delivery.date);
     Alert.alert(
       'Skip this missed delivery?',
       'A replacement delivery will be added at the end of the plan (holidays excluded).',
@@ -272,7 +272,7 @@ export default function StoreOrderDetailScreen() {
 
   const cancelMissedDelivery = async (delivery: any) => {
     if (!apiOrderId) return;
-    const deliveryDateStr = new Date(delivery.date).toISOString().split('T')[0];
+    const deliveryDateStr = toISTDateKey(delivery.date);
     Alert.alert(
       'Cancel this missed delivery?',
       'Delivery will be cancelled and a replacement will be added at the end of the plan (holidays excluded).',
@@ -401,7 +401,7 @@ export default function StoreOrderDetailScreen() {
   const deliveryGroups = (order.delivery_dates || [])
     .filter((delivery: any) => !['skipped', 'missed', 'cancelled'].includes(String(delivery.status || '').toLowerCase()))
     .reduce((groups: Record<string, any[]>, delivery: any) => {
-      const dateKey = new Date(delivery.date).toISOString().split('T')[0];
+      const dateKey = toISTDateKey(delivery.date);
       groups[dateKey] = groups[dateKey] || [];
       groups[dateKey].push(delivery);
       return groups;
@@ -612,14 +612,12 @@ export default function StoreOrderDetailScreen() {
           </View>
         </View>
 
-        </View>
-
         {missedDeliveries.length ? (
           <View className="mb-4">
             <Text className="text-2xl font-bold text-textPrimary mb-3">Missed Deliveries</Text>
             {missedDeliveries.map((delivery: any) => {
               const meta = STATUS_META.missed;
-              const deliveryDateStr = new Date(delivery.date).toISOString().split('T')[0];
+              const deliveryDateStr = toISTDateKey(delivery.date);
               const deliveryLineItems = getDeliveryLineItems(delivery, order);
               const busyKey = delivery._id;
               return (
@@ -697,7 +695,7 @@ export default function StoreOrderDetailScreen() {
         <Text className="text-2xl font-bold text-textPrimary mb-3">Delivery Timeline</Text>
         {sortedDeliveryDates.length ? (
           sortedDeliveryDates.map((dateKey) => {
-            const today = new Date().toISOString().split('T')[0];
+            const today = getTodayDateKey();
             if (dateKey < today) return null;
             if (String(order.delivery_mode || '').toLowerCase() === 'instant') return null;
             const sortedDateDeliveries = [...(deliveryGroups[dateKey] || [])].sort((a: any, b: any) => {
@@ -719,7 +717,7 @@ export default function StoreOrderDetailScreen() {
                 {sortedDateDeliveries.map((delivery: any) => {
                   const meta = STATUS_META[String(delivery.status || '').toLowerCase()] || STATUS_META.scheduled;
                   const canEdit = !['delivered', 'cancelled', 'skipped'].includes(String(delivery.status || '').toLowerCase());
-                  const deliveryDateStr = new Date(delivery.date).toISOString().split('T')[0];
+                  const deliveryDateStr = toISTDateKey(delivery.date);
                   const skipDeliveryForCustomer = async () => {
                     Alert.alert('Skip this delivery?', 'Skipped delivery will be added at end of customer plan.', [
                       { text: 'Cancel', style: 'cancel' },
@@ -853,7 +851,7 @@ export default function StoreOrderDetailScreen() {
             {Array.from({ length: 7 }, (_, index) => {
               const date = new Date();
               date.setDate(date.getDate() + index + 1);
-              const iso = date.toISOString().split('T')[0];
+              const iso = toISTDateKey(date);
               return (
                 <TouchableOpacity
                   key={iso}

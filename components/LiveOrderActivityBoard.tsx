@@ -297,8 +297,16 @@ export default function LiveOrderActivityBoard({
   const scrollRef = useRef<ScrollView>(null);
 
   const dayOrders = useMemo(
-    () => getDayOrders(dashboard, dayTab, { actionableOnly: true }),
+    () =>
+      getDayOrders(dashboard, dayTab, {
+        actionableOnly: dayTab === "tomorrow",
+      }),
     [dashboard, dayTab],
+  );
+
+  const todayActionableCount = useMemo(
+    () => getDayOrders(dashboard, "today", { actionableOnly: true }).length,
+    [dashboard],
   );
 
   const slotCounts = useMemo(() => countOrdersBySlot(dayOrders), [dayOrders]);
@@ -311,6 +319,7 @@ export default function LiveOrderActivityBoard({
 
   const todayCount = dashboard?.today_orders?.length || 0;
   const tomorrowCount = dashboard?.tomorrow_orders?.length || 0;
+  const todayActiveCount = todayActionableCount;
 
   const pendingCount = dayOrders.filter((o) => isPendingAcceptance(o)).length;
   const preparingCount = dayOrders.filter((o) => isPreparingStatus(o.status)).length;
@@ -371,10 +380,14 @@ export default function LiveOrderActivityBoard({
 
         <View className="flex-row mt-3 rounded-xl p-1" style={{ backgroundColor: "rgba(255,255,255,0.15)" }}>
           {([
-            { key: "today" as DayTab, label: "Today", count: todayCount },
+            { key: "today" as DayTab, label: "Today", count: todayCount, activeCount: todayActiveCount },
             { key: "tomorrow" as DayTab, label: "Tomorrow", count: tomorrowCount },
           ]).map((tab) => {
             const active = dayTab === tab.key;
+            const countLabel =
+              tab.key === "today" && tab.activeCount != null && tab.activeCount !== tab.count
+                ? `${tab.count} (${tab.activeCount} active)`
+                : String(tab.count);
             return (
               <TouchableOpacity
                 key={tab.key}
@@ -386,7 +399,7 @@ export default function LiveOrderActivityBoard({
                   className="text-sm font-extrabold"
                   style={{ color: active ? "#1D4ED8" : "#E0E7FF" }}
                 >
-                  {tab.label} ({tab.count})
+                  {tab.label} ({countLabel})
                 </Text>
               </TouchableOpacity>
             );
