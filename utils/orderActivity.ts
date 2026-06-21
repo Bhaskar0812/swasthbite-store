@@ -481,11 +481,14 @@ export const formatSlotLabel = (slot?: string) => {
 export const formatDeliveryDateLabel = (
   order: DashboardOrder,
   now = Date.now(),
+  options: { dayHint?: DayTab } = {},
 ) => {
   const ts = getOrderDeliveryTimestamp(order);
   if (!ts) return "Date unavailable";
 
-  const dateKey = getOrderDeliveryDateKey(order, now);
+  const dateKey =
+    String((order as any)?.delivery_date_str || "").trim() ||
+    getOrderDeliveryDateKey(order, now);
   const todayKey = getTodayDateKey(now);
   const tomorrowKey = getTomorrowDateKey(now);
 
@@ -495,6 +498,9 @@ export const formatDeliveryDateLabel = (
     day: "2-digit",
     month: "short",
   });
+
+  if (options.dayHint === "today") return `Today • ${formatted}`;
+  if (options.dayHint === "tomorrow") return `Tomorrow • ${formatted}`;
 
   if (dateKey === todayKey) return `Today • ${formatted}`;
   if (dateKey === tomorrowKey) return `Tomorrow • ${formatted}`;

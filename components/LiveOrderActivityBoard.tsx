@@ -78,6 +78,7 @@ const OrderActivityCard = ({
   now,
   index,
   total,
+  dayHint,
   onPress,
   onQuickAction,
   updatingOrder,
@@ -87,6 +88,7 @@ const OrderActivityCard = ({
   now: number;
   index: number;
   total: number;
+  dayHint?: DayTab;
   onPress?: () => void;
   onQuickAction?: (order: DashboardOrder, status: string) => void;
   updatingOrder?: string | null;
@@ -165,7 +167,7 @@ const OrderActivityCard = ({
 
       <View className="rounded-xl px-3 py-2 mb-2" style={{ backgroundColor: "#fff" }}>
         <Text className="text-[10px] font-bold text-slate-500 uppercase">
-          {formatDeliveryDateLabel(order, now)}
+          {formatDeliveryDateLabel(order, now, { dayHint })}
         </Text>
         <Text className="text-sm font-extrabold text-slate-900 mt-0.5">
           {instant ? "Deliver ASAP" : `Deliver by ${formatDeliverByTime(order)}`}
@@ -484,6 +486,7 @@ export default function LiveOrderActivityBoard({
                   now={now}
                   index={index + 1}
                   total={orders.length}
+                  dayHint={dayTab}
                   onPress={() => onOrderPress?.(order)}
                   onQuickAction={onQuickAction}
                   updatingOrder={updatingOrder}

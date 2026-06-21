@@ -114,6 +114,7 @@ export type DashboardData = {
 export type DashboardOrder = {
   _id: string;
   date: string;
+  delivery_date_str?: string;
   slot: string;
   status: string;
   meal_name: string;
