@@ -16,7 +16,6 @@ import {
   alertIncomingOrder,
   clearIncomingOrderAlert,
   handleIncomingOrderStatusChange,
-  normalizeIncomingOrderPayload,
   prepareIncomingOrderNotifications,
 } from 'services/incomingOrderAlertService';
 import PartnerOrderAlertHost from 'components/PartnerOrderAlertHost';
