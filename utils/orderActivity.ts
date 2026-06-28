@@ -145,7 +145,7 @@ export const getInstantDeadline = (order: DashboardOrder) => {
     if (!Number.isNaN(deadline) && deadline > 0) return deadline;
   }
   const createdAt = order.createdAt ? new Date(order.createdAt).getTime() : 0;
-  return createdAt ? createdAt + 60 * 60 * 1000 : 0;
+  return createdAt ? createdAt + 2 * 60 * 1000 : 0;
 };
 
 export const formatCountdown = (

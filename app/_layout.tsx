@@ -20,6 +20,7 @@ import {
 } from 'services/incomingOrderAlertService';
 import PartnerOrderAlertHost from 'components/PartnerOrderAlertHost';
 import { useSyncPushToken } from 'hooks/useSyncPushToken';
+import { useOrderAlertTimer } from 'hooks/useOrderAlertTimer';
 import { registerForPushNotifications } from 'services/pushNotificationService';
 import AnimatedSplash from 'components/AnimatedSplash';
 import Toast from 'react-native-toast-message';
@@ -40,11 +41,13 @@ Notifications.setNotificationHandler({
       type === 'order_new' ||
       type === 'order:new' ||
       type === 'bulk_order_confirmed' ||
-      type === 'bulk_order:confirmed';
+      type === 'bulk_order:confirmed' ||
+      data?.sticky_alert === true ||
+      data?.requires_acceptance === true;
 
     return {
       shouldShowAlert: isIncomingOrderPush,
-      shouldPlaySound: isIncomingOrderPush,
+      shouldPlaySound: isIncomingOrderPush && !data?.reminder,
       shouldSetBadge: isIncomingOrderPush,
       shouldShowBanner: isIncomingOrderPush,
       shouldShowList: isIncomingOrderPush && !isOngoingActivity,
@@ -80,6 +83,7 @@ export default function RootLayout() {
 
   // Sync push token with backend whenever authenticated
   useSyncPushToken();
+  useOrderAlertTimer(Boolean(token && user?._id));
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (nextState) => {
@@ -100,6 +104,22 @@ export default function RootLayout() {
     }
     prepare();
   }, []);
+
+  useEffect(() => {
+    if (!token) return;
+
+    Notifications.getLastNotificationResponseAsync()
+      .then((response) => {
+        const data = response?.notification?.request?.content?.data as Record<string, any> | undefined;
+        if (!data) return;
+        const eventType = String(data.type || data.event || '').toLowerCase();
+        if (eventType === 'order_new' || eventType === 'order:new') {
+          alertIncomingOrder(data, dashboard).catch(() => null);
+          queueDashboardRefresh();
+        }
+      })
+      .catch(() => null);
+  }, [token]);
 
   useEffect(() => {
     if (token && user?._id) {
@@ -280,6 +300,9 @@ export default function RootLayout() {
     };
 
     const onStoreToggled = (payload: any) => {
+      if (typeof payload?.is_online === 'boolean') {
+        useStoreStore.setState({ isOnline: payload.is_online });
+      }
       Toast.show({
         type: payload?.is_online ? 'success' : 'info',
         text1: payload?.is_online ? 'Store is online' : 'Store is offline',

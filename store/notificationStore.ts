@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { notificationService } from "services/notificationService";
+import { clearIncomingOrderAlert } from "services/incomingOrderAlertService";
 import type { Notification } from "types";
 
 type NotificationState = {
@@ -36,7 +37,17 @@ export const useNotificationStore = create<NotificationState>((set) => ({
 
   markRead: async (id) => {
     try {
+      const current = useNotificationStore.getState().notifications.find((n) => n._id === id);
       await notificationService.markRead(id);
+      const orderId = String(
+        (current as any)?.data?.orderId ||
+          (current as any)?.data?.subscription_id ||
+          (current as any)?.data?.order_id ||
+          "",
+      ).trim();
+      if (orderId) {
+        await clearIncomingOrderAlert(orderId);
+      }
       set((s) => ({
         notifications: s.notifications.map((n) =>
           n._id === id ? { ...n, is_read: true } : n,

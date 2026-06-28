@@ -13,10 +13,15 @@ import {
   getOrderId,
   isPendingAcceptance,
   requiresBlockingIncomingAlert,
+  formatCountdown,
+  getInstantDeadline,
 } from "utils/orderActivity";
 
 const INCOMING_CHANNEL_ID = "incoming-orders";
 export const INCOMING_NOTIFICATION_ID = "partner-incoming-order-alert";
+
+export const incomingNotificationId = (orderId: string) =>
+  `partner-incoming-${String(orderId || "alert").slice(-12)}`;
 
 const BURST_DEDUPE_MS = 2500;
 const SNOOZE_MS = 4 * 60 * 60 * 1000;
@@ -157,13 +162,13 @@ const ensureIncomingOrdersChannel = async () => {
 };
 
 const formatTimerText = (order: IncomingOrderInfo) => {
-  if (order.instantDeadlineAt) {
-    const deadline = new Date(order.instantDeadlineAt);
-    if (!Number.isNaN(deadline.getTime())) {
-      return `Accept before ${deadline.toLocaleTimeString("en-IN", {
-        hour: "numeric",
-        minute: "2-digit",
-      })}`;
+  if (order.deliveryMode === "instant") {
+    const deadline = order.instantDeadlineAt
+      ? new Date(order.instantDeadlineAt).getTime()
+      : 0;
+    if (deadline > 0) {
+      const countdown = formatCountdown(deadline, Date.now(), { withSeconds: true });
+      return countdown ? `${countdown} left to accept` : "Accept now";
     }
   }
   return "Tap Accept to start preparing";
@@ -236,7 +241,7 @@ export async function postIncomingOrderAlert(
   const playSound = options.playSound !== false;
 
   await Notifications.scheduleNotificationAsync({
-    identifier: INCOMING_NOTIFICATION_ID,
+    identifier: incomingNotificationId(order.orderId),
     content: {
       title: buildNotificationTitle(order),
       body: buildNotificationBody(order),
@@ -300,6 +305,9 @@ export const snoozeIncomingOrderAlert = async (orderId: string) => {
   pendingAcceptanceOrders.delete(normalized);
   recentBurstAt.delete(normalized);
 
+  await Notifications.dismissNotificationAsync(incomingNotificationId(orderId)).catch(
+    () => null,
+  );
   await Notifications.dismissNotificationAsync(INCOMING_NOTIFICATION_ID).catch(
     () => null,
   );
@@ -369,11 +377,9 @@ export async function alertIncomingOrder(
 
   const alreadyAlerted = alertedOrderIds.has(order.orderId);
   pendingAcceptanceOrders.add(order.orderId);
+  alertedOrderIds.add(order.orderId);
 
-  if (!alreadyAlerted) {
-    alertedOrderIds.add(order.orderId);
-    await postIncomingOrderAlert(order, { playSound: true });
-  }
+  await postIncomingOrderAlert(order, { playSound: !alreadyAlerted });
 }
 
 export async function pulseIncomingOrderAlerts(
@@ -400,6 +406,33 @@ export async function pulseIncomingOrderAlerts(
     await Notifications.dismissNotificationAsync(INCOMING_NOTIFICATION_ID).catch(
       () => null,
     );
+    return;
+  }
+
+  for (const dashboardOrder of blockingOrders) {
+    const orderId = getOrderId(dashboardOrder);
+    if (!orderId || isIncomingAlertSnoozed(orderId)) continue;
+
+    const order: IncomingOrderInfo = {
+      orderId,
+      packageName:
+        normalizeText(dashboardOrder.package_name) ||
+        normalizeText(dashboardOrder.meal_name) ||
+        "Order",
+      customerName: normalizeText(dashboardOrder.user_name) || "Customer",
+      deliveryMode: String(dashboardOrder.delivery_mode || "scheduled").toLowerCase(),
+      status: String(dashboardOrder.status || "pending").toLowerCase(),
+      instantDeadlineAt:
+        normalizeText(dashboardOrder.instant_deadline_at) ||
+        (getInstantDeadline(dashboardOrder)
+          ? new Date(getInstantDeadline(dashboardOrder)).toISOString()
+          : undefined),
+      totalAmount: Number(dashboardOrder.total_amount || 0),
+    };
+
+    pendingAcceptanceOrders.add(orderId);
+    alertedOrderIds.add(orderId);
+    await postIncomingOrderAlert(order, { playSound: false });
   }
 }
 
@@ -410,13 +443,25 @@ export async function clearIncomingOrderAlert(orderId?: string) {
     overlayDismissedOrders.delete(orderId);
     snoozedUntil.delete(orderId);
     alertedOrderIds.delete(orderId);
-  } else {
-    pendingAcceptanceOrders.clear();
-    recentBurstAt.clear();
-    overlayDismissedOrders.clear();
-    snoozedUntil.clear();
-    alertedOrderIds.clear();
+    await Notifications.dismissNotificationAsync(incomingNotificationId(orderId)).catch(
+      () => null,
+    );
+    await Notifications.dismissNotificationAsync(INCOMING_NOTIFICATION_ID).catch(
+      () => null,
+    );
+    return;
   }
+
+  for (const pendingId of [...pendingAcceptanceOrders]) {
+    await Notifications.dismissNotificationAsync(incomingNotificationId(pendingId)).catch(
+      () => null,
+    );
+  }
+  pendingAcceptanceOrders.clear();
+  recentBurstAt.clear();
+  overlayDismissedOrders.clear();
+  snoozedUntil.clear();
+  alertedOrderIds.clear();
 
   await Notifications.dismissNotificationAsync(INCOMING_NOTIFICATION_ID).catch(
     () => null,
