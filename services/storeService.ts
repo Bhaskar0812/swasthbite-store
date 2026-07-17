@@ -276,7 +276,7 @@ export const storeService = {
   },
   updateOrderDeliveryStatus: async (
     id: string,
-    payload: { delivery_index: number; status: string },
+    payload: { delivery_index: number; status: string; quantity?: number; delivered_quantity?: number },
   ) => {
     try {
       const res = await api.put(`/store/orders/${id}/delivery-status`, payload);

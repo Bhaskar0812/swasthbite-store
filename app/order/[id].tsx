@@ -114,6 +114,11 @@ export default function StoreOrderDetailScreen() {
     delivery: any;
     deliveryDateStr: string;
   } | null>(null);
+  const [handoverModal, setHandoverModal] = useState<{
+    open: boolean;
+    deliveryIndex: number;
+    quantity: number;
+  }>({ open: false, deliveryIndex: -1, quantity: 1 });
 
   const apiOrderId = useMemo(
     () => String(order?._id || resolvedOrderId || id || '').trim(),
@@ -301,7 +306,11 @@ export default function StoreOrderDetailScreen() {
     );
   };
 
-  const updateDeliveryStatus = async (deliveryIndex: number, status: string) => {
+  const updateDeliveryStatus = async (
+    deliveryIndex: number,
+    status: string,
+    options?: { quantity?: number },
+  ) => {
     if (!apiOrderId) return;
     const key = `${deliveryIndex}-${status}`;
     try {
@@ -309,14 +318,39 @@ export default function StoreOrderDetailScreen() {
       const res = await storeService.updateOrderDeliveryStatus(apiOrderId, {
         delivery_index: deliveryIndex,
         status,
+        ...(options?.quantity ? { delivered_quantity: options.quantity } : {}),
       });
       setOrder(res.data);
-      Alert.alert('Updated', 'Delivery status updated successfully.');
+      Alert.alert('Updated', status === 'out_for_delivery'
+        ? `Handed over with quantity ${options?.quantity || 1}.`
+        : 'Delivery status updated successfully.');
     } catch (error: any) {
       Alert.alert('Error', error?.response?.data?.message || 'Failed to update delivery status');
     } finally {
       setUpdatingKey(null);
     }
+  };
+
+  const openHandoverModal = (deliveryIndex: number, defaultQty: number) => {
+    setHandoverModal({
+      open: true,
+      deliveryIndex,
+      quantity: Math.max(defaultQty, 1),
+    });
+  };
+
+  const confirmHandover = async () => {
+    const { deliveryIndex, quantity } = handoverModal;
+    setHandoverModal({ open: false, deliveryIndex: -1, quantity: 1 });
+    await updateDeliveryStatus(deliveryIndex, 'out_for_delivery', { quantity });
+  };
+
+  const handlePrimaryDeliveryAction = (deliveryIndex: number, status: string, defaultQty: number) => {
+    if (status === 'out_for_delivery') {
+      openHandoverModal(deliveryIndex, defaultQty);
+      return;
+    }
+    updateDeliveryStatus(deliveryIndex, status);
   };
 
   const requestPayment = async () => {
@@ -575,7 +609,11 @@ export default function StoreOrderDetailScreen() {
 
               {nextPrimaryAction ? (
                 <TouchableOpacity
-                  onPress={() => updateDeliveryStatus(Number(nextEditableDelivery.delivery_index || 0), nextPrimaryAction.value)}
+                  onPress={() => handlePrimaryDeliveryAction(
+                    Number(nextEditableDelivery.delivery_index || 0),
+                    nextPrimaryAction.value,
+                    nextDeliveryItems.reduce((sum, item) => sum + Number(item.qty || 0), 0) || getOrderQuantity(order),
+                  )}
                   disabled={updatingKey === `${Number(nextEditableDelivery.delivery_index || 0)}-${nextPrimaryAction.value}`}
                   className="rounded-2xl px-4 py-3 items-center"
                   style={{ backgroundColor: nextPrimaryAction.value === 'out_for_delivery' ? Colors.warning : Colors.primary }}
@@ -881,6 +919,56 @@ export default function StoreOrderDetailScreen() {
               );
             })}
             <TouchableOpacity onPress={() => setRescheduleTarget(null)} className="mt-4 py-3 items-center">
+              <Text className="text-base font-semibold text-textSecondary">Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={handoverModal.open}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setHandoverModal({ open: false, deliveryIndex: -1, quantity: 1 })}
+      >
+        <View className="flex-1 justify-end bg-black/40">
+          <View className="bg-white rounded-t-3xl px-4 pt-4 pb-8">
+            <Text className="text-lg font-bold text-textPrimary mb-1">Hand over to delivery agent</Text>
+            <Text className="text-sm text-textSecondary mb-4">
+              Confirm quantity being handed over. Extra quantity will be charged from customer wallet on delivery.
+            </Text>
+            <View className="flex-row items-center justify-center gap-6 py-4">
+              <TouchableOpacity
+                onPress={() => setHandoverModal((prev) => ({ ...prev, quantity: Math.max(1, prev.quantity - 1) }))}
+                className="w-12 h-12 rounded-full items-center justify-center"
+                style={{ backgroundColor: '#F3F4F6' }}
+              >
+                <Ionicons name="remove" size={22} color={Colors.textPrimary} />
+              </TouchableOpacity>
+              <Text className="text-3xl font-extrabold text-textPrimary min-w-[48px] text-center">
+                {handoverModal.quantity}
+              </Text>
+              <TouchableOpacity
+                onPress={() => setHandoverModal((prev) => ({ ...prev, quantity: prev.quantity + 1 }))}
+                className="w-12 h-12 rounded-full items-center justify-center"
+                style={{ backgroundColor: Colors.primaryLight }}
+              >
+                <Ionicons name="add" size={22} color={Colors.primary} />
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity
+              onPress={confirmHandover}
+              className="rounded-2xl px-4 py-3 items-center mt-2"
+              style={{ backgroundColor: Colors.warning }}
+            >
+              <Text className="text-base font-semibold text-white">
+                Hand over {handoverModal.quantity} item{handoverModal.quantity > 1 ? 's' : ''}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setHandoverModal({ open: false, deliveryIndex: -1, quantity: 1 })}
+              className="mt-4 py-3 items-center"
+            >
               <Text className="text-base font-semibold text-textSecondary">Cancel</Text>
             </TouchableOpacity>
           </View>
