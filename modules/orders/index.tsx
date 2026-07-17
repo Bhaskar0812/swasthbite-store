@@ -16,6 +16,8 @@ import MissedOrdersBanner from 'components/MissedOrdersBanner';
 import PendingBulkOrdersBanner from 'components/PendingBulkOrdersBanner';
 import PendingBulkInquiriesBanner from 'components/PendingBulkInquiriesBanner';
 import {
+  getOrderDeliveryDateKey,
+  getTodayDateKey,
   isHiddenStoreDelivery,
 } from 'utils/orderActivity';
 
@@ -86,6 +88,7 @@ export default function OrdersScreen() {
         id: routeId,
         alts: altIds.join(','),
         openAt: String(Date.now()),
+        focusDate: getOrderDeliveryDateKey(item) || getTodayDateKey(),
       },
     });
   };

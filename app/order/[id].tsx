@@ -9,7 +9,7 @@ import { Colors } from 'constants/theme';
 import api from 'services/api';
 import { storeService } from 'services/storeService';
 import { pickImageUrl, resolveImageUrl } from 'utils/image';
-import { getOrderLineItems, getOrderQuantity, getTodayDateKey, toISTDateKey } from 'utils/orderActivity';
+import { getOrderDeliveryDateKey, getOrderLineItems, getOrderQuantity, getTodayDateKey, toISTDateKey } from 'utils/orderActivity';
 
 const STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
   scheduled: { label: 'Scheduled', color: Colors.textSecondary, bg: '#F3F4F6' },
@@ -105,7 +105,13 @@ const buildAddress = (order: any) => {
 };
 
 export default function StoreOrderDetailScreen() {
-  const { id, alts, openAt } = useLocalSearchParams<{ id: string; alts?: string; openAt?: string }>();
+  const { id, alts, openAt, focusDate: focusDateParam } = useLocalSearchParams<{
+    id: string;
+    alts?: string;
+    openAt?: string;
+    focusDate?: string;
+  }>();
+  const focusDate = focusDateParam ? String(focusDateParam) : null;
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [updatingKey, setUpdatingKey] = useState<string | null>(null);
@@ -179,6 +185,11 @@ export default function StoreOrderDetailScreen() {
 
   const statusMeta = useMemo(() => STATUS_META[String(order?.status || '').toLowerCase()] || STATUS_META.scheduled, [order?.status]);
 
+  const matchesFocusDate = (delivery: any) => {
+    if (!focusDate) return true;
+    return toISTDateKey(delivery?.date) === focusDate;
+  };
+
   const missedDeliveries = useMemo(() => {
     return (order?.delivery_dates || [])
       .map((delivery: any, deliveryIndex: number) => ({
@@ -189,8 +200,9 @@ export default function StoreOrderDetailScreen() {
           : deliveryIndex,
       }))
       .filter((delivery: any) => delivery.status === 'missed')
+      .filter(matchesFocusDate)
       .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [order?.delivery_dates]);
+  }, [order?.delivery_dates, focusDate]);
 
   const upcomingDeliveries = useMemo(() => {
     const deliveries = (order?.delivery_dates || []).map((delivery: any, deliveryIndex: number) => {
@@ -211,12 +223,13 @@ export default function StoreOrderDetailScreen() {
 
     return deliveries
       .filter((delivery: any) => !['delivered', 'cancelled', 'skipped'].includes(delivery.status))
+      .filter(matchesFocusDate)
       .sort((a: any, b: any) => {
         if (a.sortDate !== b.sortDate) return a.sortDate - b.sortDate;
         if (a.sortSlot !== b.sortSlot) return a.sortSlot - b.sortSlot;
         return Number(a.delivery_index || 0) - Number(b.delivery_index || 0);
       });
-  }, [order?.delivery_dates]);
+  }, [order?.delivery_dates, focusDate]);
 
   const nextEditableDelivery = upcomingDeliveries[0] || null;
   const nextEditableStatus = String(nextEditableDelivery?.status || '').toLowerCase();
@@ -434,6 +447,7 @@ export default function StoreOrderDetailScreen() {
   // Only show active deliveries (exclude skipped, missed, cancelled) in the timeline
   const deliveryGroups = (order.delivery_dates || [])
     .filter((delivery: any) => !['skipped', 'missed', 'cancelled'].includes(String(delivery.status || '').toLowerCase()))
+    .filter(matchesFocusDate)
     .reduce((groups: Record<string, any[]>, delivery: any) => {
       const dateKey = toISTDateKey(delivery.date);
       groups[dateKey] = groups[dateKey] || [];
@@ -491,7 +505,12 @@ export default function StoreOrderDetailScreen() {
           <TouchableOpacity onPress={() => router.back()} className="w-11 h-11 rounded-full items-center justify-center bg-white">
             <Ionicons name="arrow-back" size={20} color={Colors.textPrimary} />
           </TouchableOpacity>
-          <Text className="text-lg font-bold text-textPrimary">Order Detail</Text>
+          <View className="flex-1 items-center">
+            <Text className="text-lg font-bold text-textPrimary">Order Detail</Text>
+            {focusDate ? (
+              <Text className="text-xs text-textSecondary mt-0.5">{formatDateLabel(focusDate)}</Text>
+            ) : null}
+          </View>
           <View className="w-11 h-11" />
         </View>
 
@@ -730,11 +749,14 @@ export default function StoreOrderDetailScreen() {
           </View>
         ) : null}
 
-        <Text className="text-2xl font-bold text-textPrimary mb-3">Delivery Timeline</Text>
+        <Text className="text-2xl font-bold text-textPrimary mb-3">
+          {focusDate ? "Today's Delivery" : 'Delivery Timeline'}
+        </Text>
         {sortedDeliveryDates.length ? (
           sortedDeliveryDates.map((dateKey) => {
             const today = getTodayDateKey();
-            if (dateKey < today) return null;
+            if (!focusDate && dateKey < today) return null;
+            if (focusDate && dateKey !== focusDate) return null;
             if (String(order.delivery_mode || '').toLowerCase() === 'instant') return null;
             const sortedDateDeliveries = [...(deliveryGroups[dateKey] || [])].sort((a: any, b: any) => {
               const statusA = String(a?.status || '').toLowerCase();
