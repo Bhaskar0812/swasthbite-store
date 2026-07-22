@@ -86,15 +86,44 @@ export const useStoreStore = create<StoreState>((set, get) => ({
   },
 
   toggleItemStock: async (itemId, available) => {
-    await storeService.updateMenuItem(itemId, { is_available: available });
-    await get().fetchMenuItems();
+    // Optimistic UI
+    set({
+      menuItems: get().menuItems.map((item) =>
+        item._id === itemId
+          ? {
+              ...item,
+              store_available: available,
+              available_for_instant: available
+                ? (item as any).available_for_instant
+                : false,
+            }
+          : item,
+      ),
+    });
+    try {
+      await storeService.toggleItemStock(itemId, available);
+      await get().fetchMenuItems();
+    } catch (err) {
+      await get().fetchMenuItems();
+      throw err;
+    }
   },
 
   toggleItemInstantAvailability: async (itemId, available) => {
-    await storeService.updateMenuItem(itemId, {
-      is_instant_available: available,
+    set({
+      menuItems: get().menuItems.map((item) =>
+        item._id === itemId
+          ? { ...item, available_for_instant: available }
+          : item,
+      ),
     });
-    await get().fetchMenuItems();
+    try {
+      await storeService.toggleItemInstantAvailability(itemId, available);
+      await get().fetchMenuItems();
+    } catch (err) {
+      await get().fetchMenuItems();
+      throw err;
+    }
   },
 
   togglePackage: async (packageId) => {

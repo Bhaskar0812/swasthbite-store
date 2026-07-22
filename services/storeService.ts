@@ -387,4 +387,28 @@ export const storeService = {
     const res = await api.get("/store/subscriptions", { params: { status } });
     return res.data;
   },
+  getManageDeliveries: async () => {
+    const res = await api.get("/store/manage-deliveries");
+    return res.data;
+  },
+  updateDeliveryQuantity: async (
+    orderId: string,
+    payload: { date: string; slot?: string; quantity: number },
+  ) => {
+    const res = await api.put(`/store/orders/${orderId}/update-quantity`, payload);
+    return res.data;
+  },
+  addDelivery: async (
+    orderId: string,
+    payload: {
+      date?: string;
+      slot?: string;
+      quantity?: number;
+      meal_name?: string;
+      at_end?: boolean;
+    },
+  ) => {
+    const res = await api.post(`/store/orders/${orderId}/add-delivery`, payload);
+    return res.data;
+  },
 };

@@ -326,6 +326,7 @@ export default function DashboardScreen() {
         <Text className="text-lg font-bold text-textPrimary mb-3">Quick Actions</Text>
         <View className="flex-row flex-wrap mb-4">
           {[
+            { label: 'Deliveries', icon: 'calendar', route: '/deliveries', color: Colors.info },
             { label: 'Menu Items', icon: 'restaurant', route: '/(tabs)/menu', color: Colors.primary },
             { label: 'Settlements', icon: 'wallet', route: '/(tabs)/finance', color: Colors.success },
             { label: 'Chat', icon: 'chatbubbles', route: '/chat', color: Colors.info },

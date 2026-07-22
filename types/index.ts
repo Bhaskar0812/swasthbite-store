@@ -172,6 +172,7 @@ export type MenuItem = {
   categories?: { _id: string; name: string; icon?: string }[];
   image?: string;
   store_available: boolean;
+  available_for_instant?: boolean;
   is_veg?: boolean;
 };
 

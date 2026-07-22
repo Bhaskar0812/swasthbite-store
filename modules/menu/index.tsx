@@ -8,6 +8,7 @@ import {
   RefreshControl,
   TextInput,
   Image,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,6 +23,7 @@ export default function MenuScreen() {
   const [tab, setTab] = useState<'items' | 'packages'>('items');
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchMenuItems();
@@ -33,6 +35,31 @@ export default function MenuScreen() {
     await Promise.all([fetchMenuItems(), fetchPackages()]);
     setRefreshing(false);
   }, []);
+
+  const onToggleStock = async (itemId: string, value: boolean) => {
+    try {
+      setTogglingId(`${itemId}-stock`);
+      await toggleItemStock(itemId, value);
+    } catch (err: any) {
+      Alert.alert('Stock update failed', err?.response?.data?.message || 'Could not update stock');
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
+  const onToggleInstant = async (itemId: string, value: boolean) => {
+    try {
+      setTogglingId(`${itemId}-instant`);
+      await toggleItemInstantAvailability(itemId, value);
+    } catch (err: any) {
+      Alert.alert(
+        'Instant update failed',
+        err?.response?.data?.message || 'Could not update instant availability',
+      );
+    } finally {
+      setTogglingId(null);
+    }
+  };
 
   const filteredItems = menuItems.filter((i) =>
     i.name.toLowerCase().includes(search.toLowerCase())
@@ -72,8 +99,9 @@ export default function MenuScreen() {
             Stock
           </Text>
           <Switch
-            value={item.store_available}
-            onValueChange={(val) => toggleItemStock(item._id, val)}
+            value={!!item.store_available}
+            onValueChange={(val) => onToggleStock(item._id, val)}
+            disabled={togglingId === `${item._id}-stock`}
             trackColor={{ false: '#E0E0E0', true: Colors.success + '50' }}
             thumbColor={item.store_available ? Colors.success : '#9E9E9E'}
             style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
@@ -84,8 +112,9 @@ export default function MenuScreen() {
             Instant
           </Text>
           <Switch
-            value={item.available_for_instant}
-            onValueChange={(val) => toggleItemInstantAvailability(item._id, val)}
+            value={!!item.available_for_instant}
+            onValueChange={(val) => onToggleInstant(item._id, val)}
+            disabled={togglingId === `${item._id}-instant` || !item.store_available}
             trackColor={{ false: '#E0E0E0', true: Colors.primary + '50' }}
             thumbColor={item.available_for_instant ? Colors.primary : '#9E9E9E'}
             style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}

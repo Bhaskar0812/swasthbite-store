@@ -348,6 +348,7 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="notifications" />
         <Stack.Screen name="subscriptions" />
+        <Stack.Screen name="deliveries" />
         <Stack.Screen name="order" />
         <Stack.Screen name="chat" />
         <Stack.Screen name="bank-account" />
