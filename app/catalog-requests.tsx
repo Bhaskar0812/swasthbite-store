@@ -16,10 +16,10 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack, router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker";
 import Toast from "react-native-toast-message";
 import { Colors } from "constants/theme";
 import { storeService } from "services/storeService";
+import { getImagePicker } from "utils/imagePicker";
 
 type TabKey = "new" | "mine";
 type FormTab = "basic" | "details" | "nutrition";
@@ -205,34 +205,64 @@ export default function CatalogRequestsScreen() {
   };
 
   const pickFromLibrary = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert("Permission needed", "Allow photo library access to pick an image.");
+    const ImagePicker = getImagePicker();
+    if (!ImagePicker) {
+      Alert.alert(
+        "Update required",
+        "Photo picker needs a newer app install. You can paste an image URL below for now.",
+      );
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      quality: 0.85,
-      allowsEditing: true,
-      aspect: [3, 2],
-    });
-    if (result.canceled || !result.assets?.[0]?.uri) return;
-    await uploadFromUri(result.assets[0].uri, result.assets[0].fileName || undefined);
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert("Permission needed", "Allow photo library access to pick an image.");
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        quality: 0.85,
+        allowsEditing: true,
+        aspect: [3, 2],
+      });
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+      await uploadFromUri(result.assets[0].uri, result.assets[0].fileName || undefined);
+    } catch (err: any) {
+      Alert.alert(
+        "Could not open photos",
+        err?.message || "Photo library is unavailable on this app build.",
+      );
+    }
   };
 
   const captureFromCamera = async () => {
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert("Permission needed", "Allow camera access to take a photo.");
+    const ImagePicker = getImagePicker();
+    if (!ImagePicker) {
+      Alert.alert(
+        "Update required",
+        "Camera needs a newer app install. You can paste an image URL below for now.",
+      );
       return;
     }
-    const result = await ImagePicker.launchCameraAsync({
-      quality: 0.85,
-      allowsEditing: true,
-      aspect: [3, 2],
-    });
-    if (result.canceled || !result.assets?.[0]?.uri) return;
-    await uploadFromUri(result.assets[0].uri, `camera-${Date.now()}.jpg`);
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert("Permission needed", "Allow camera access to take a photo.");
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        quality: 0.85,
+        allowsEditing: true,
+        aspect: [3, 2],
+      });
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+      await uploadFromUri(result.assets[0].uri, `camera-${Date.now()}.jpg`);
+    } catch (err: any) {
+      Alert.alert(
+        "Could not open camera",
+        err?.message || "Camera is unavailable on this app build.",
+      );
+    }
   };
 
   const chooseImageSource = () => {
@@ -474,6 +504,15 @@ export default function CatalogRequestsScreen() {
                       </View>
                     )}
                   </TouchableOpacity>
+                  <TextInput
+                    className={`${inputClass} mt-3`}
+                    placeholder="Or paste image URL"
+                    placeholderTextColor={Colors.textTertiary}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    value={form.image}
+                    onChangeText={(image) => setForm((p) => ({ ...p, image }))}
+                  />
                 </Field>
 
                 <Field label="Meal type">
