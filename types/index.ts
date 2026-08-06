@@ -168,9 +168,12 @@ export type MenuItem = {
   name: string;
   description?: string;
   price: number;
+  store_price?: number | null;
+  store_mrp?: number | null;
   category?: string;
   categories?: { _id: string; name: string; icon?: string }[];
   image?: string;
+  image_url?: string;
   store_available: boolean;
   available_for_instant?: boolean;
   is_veg?: boolean;
@@ -181,6 +184,7 @@ export type Package = {
   name: string;
   description?: string;
   price: number;
+  store_price?: number | null;
   duration_days?: number;
   meals_per_day?: number;
   image?: string;

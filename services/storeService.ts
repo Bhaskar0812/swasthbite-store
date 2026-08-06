@@ -110,6 +110,17 @@ export const storeService = {
     );
     return res.data;
   },
+  updateItemPrice: async (
+    itemId: string,
+    store_price: number | null,
+    store_mrp: number | null = null,
+  ) => {
+    const res = await api.put(`/store/menu-items/${itemId}/store-price`, {
+      store_price,
+      store_mrp,
+    });
+    return res.data;
+  },
 
   // Packages
   getPackages: async () => {
