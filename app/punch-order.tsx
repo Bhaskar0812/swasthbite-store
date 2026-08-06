@@ -104,6 +104,8 @@ export default function PunchOrderScreen() {
   const [packingCharge, setPackingCharge] = useState(0);
 
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [itemQuery, setItemQuery] = useState("");
+  const [itemDropdownOpen, setItemDropdownOpen] = useState(false);
   const [selectedMenuItemId, setSelectedMenuItemId] = useState("");
   const [menuQty, setMenuQty] = useState("1");
   const [deliveryDate, setDeliveryDate] = useState(toDateInput(new Date()));
@@ -131,6 +133,24 @@ export default function PunchOrderScreen() {
     if (!allowed.size) return source;
     return source.filter((item: any) => allowed.has(String(item._id)));
   }, [menuItems, menuItemIds]);
+
+  const filteredMenuItems = useMemo(() => {
+    const q = itemQuery.trim().toLowerCase();
+    const list = !q
+      ? storeMenuItems
+      : storeMenuItems.filter((item: any) => {
+          const name = String(item.name || "").toLowerCase();
+          const price = String(item.store_price || item.base_price || item.price || "");
+          return name.includes(q) || price.includes(q);
+        });
+    return list.slice(0, 40);
+  }, [storeMenuItems, itemQuery]);
+
+  const selectedMenuItem = useMemo(
+    () =>
+      storeMenuItems.find((m: any) => String(m._id) === selectedMenuItemId) || null,
+    [storeMenuItems, selectedMenuItemId],
+  );
 
   const storePackages = useMemo(() => {
     const source = packages || [];
@@ -209,6 +229,9 @@ export default function PunchOrderScreen() {
       ];
     });
     setMenuQty("1");
+    setSelectedMenuItemId("");
+    setItemQuery("");
+    setItemDropdownOpen(false);
   };
 
   const planConfig = useMemo(() => {
@@ -527,17 +550,78 @@ export default function PunchOrderScreen() {
           {orderType === "one_time" ? (
             <View className="mb-4">
               <Text className="text-base font-extrabold text-textPrimary mb-2">2. Items</Text>
-              <Text className="text-sm font-bold text-textSecondary mb-1">Menu item</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-2">
-                {storeMenuItems.map((item: any) => (
-                  <Chip
-                    key={item._id}
-                    label={`${item.name} · ₹${item.store_price || item.base_price || item.price || 0}`}
-                    selected={selectedMenuItemId === String(item._id)}
-                    onPress={() => setSelectedMenuItemId(String(item._id))}
-                  />
-                ))}
-              </ScrollView>
+              <Text className="text-sm font-bold text-textSecondary mb-1">Search menu item</Text>
+              <View className="mb-2" style={{ zIndex: 20 }}>
+                <TextInput
+                  className="bg-white border border-border rounded-xl px-4 py-3 text-base"
+                  placeholder="Type item name..."
+                  placeholderTextColor={Colors.textTertiary}
+                  value={
+                    itemDropdownOpen
+                      ? itemQuery
+                      : selectedMenuItem
+                        ? `${selectedMenuItem.name} · ₹${selectedMenuItem.store_price || selectedMenuItem.base_price || selectedMenuItem.price || 0}`
+                        : itemQuery
+                  }
+                  onFocus={() => {
+                    setItemDropdownOpen(true);
+                    if (selectedMenuItemId) setItemQuery("");
+                  }}
+                  onChangeText={(q) => {
+                    setItemQuery(q);
+                    setSelectedMenuItemId("");
+                    setItemDropdownOpen(true);
+                  }}
+                />
+                {itemDropdownOpen ? (
+                  <View
+                    className="bg-white border border-border rounded-xl mt-1 overflow-hidden"
+                    style={{ maxHeight: 220 }}
+                  >
+                    <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                      {filteredMenuItems.length === 0 ? (
+                        <Text className="text-sm text-textSecondary px-4 py-3">
+                          No items match
+                        </Text>
+                      ) : (
+                        filteredMenuItems.map((item: any) => (
+                          <TouchableOpacity
+                            key={item._id}
+                            onPress={() => {
+                              setSelectedMenuItemId(String(item._id));
+                              setItemQuery(item.name || "");
+                              setItemDropdownOpen(false);
+                            }}
+                            className="px-4 py-3 border-b border-border"
+                            style={{
+                              backgroundColor:
+                                selectedMenuItemId === String(item._id)
+                                  ? "#EFF6FF"
+                                  : "#fff",
+                            }}
+                          >
+                            <Text className="text-sm font-bold text-textPrimary">
+                              {item.name}
+                            </Text>
+                            <Text className="text-xs text-textSecondary mt-0.5">
+                              ₹{item.store_price || item.base_price || item.price || 0}
+                              {item.meal_type ? ` · ${item.meal_type}` : ""}
+                            </Text>
+                          </TouchableOpacity>
+                        ))
+                      )}
+                    </ScrollView>
+                    <TouchableOpacity
+                      onPress={() => setItemDropdownOpen(false)}
+                      className="px-4 py-2 bg-slate-50"
+                    >
+                      <Text className="text-xs font-bold text-textSecondary text-center">
+                        Close
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
+              </View>
               <View className="flex-row items-center mb-3">
                 <TextInput
                   className="bg-white border border-border rounded-xl px-3 py-2.5 text-base w-20 mr-2"
