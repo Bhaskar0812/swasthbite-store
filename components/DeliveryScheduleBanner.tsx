@@ -4,6 +4,7 @@ import type { DashboardOrder } from "types";
 import {
   formatDeliveryDateLabel,
   formatSlotLabel,
+  getSlotCardTheme,
   isInstantOrder,
 } from "utils/orderActivity";
 
@@ -19,21 +20,29 @@ export default function DeliveryScheduleBanner({
   compact = false,
 }: Props) {
   const instant = isInstantOrder(order);
+  const theme = getSlotCardTheme(order.slot, { instant });
   const dateLabel = formatDeliveryDateLabel(order, now);
   const slotLabel = instant ? "Instant" : formatSlotLabel(order.slot);
 
   if (compact) {
     return (
       <View
-        className="rounded-2xl px-3 py-2 mb-2"
-        style={{ backgroundColor: "#EEF2FF", borderWidth: 1, borderColor: "#C7D2FE" }}
+        className="rounded-2xl px-3 py-2 mb-2 flex-row items-center"
+        style={{
+          backgroundColor: theme.background,
+          borderWidth: 1,
+          borderColor: theme.border,
+        }}
       >
-        <Text className="text-sm font-extrabold" style={{ color: "#312E81" }}>
-          {dateLabel}
-        </Text>
-        <Text className="text-base font-bold mt-0.5" style={{ color: "#1D4ED8" }}>
-          {slotLabel}
-        </Text>
+        <Ionicons name={theme.icon} size={16} color={theme.iconColor} />
+        <View className="ml-2 flex-1">
+          <Text className="text-sm font-extrabold" style={{ color: theme.title }}>
+            {dateLabel}
+          </Text>
+          <Text className="text-base font-bold mt-0.5" style={{ color: theme.subtitle }}>
+            {slotLabel}
+          </Text>
+        </View>
       </View>
     );
   }
@@ -41,27 +50,40 @@ export default function DeliveryScheduleBanner({
   return (
     <View
       className="rounded-2xl px-4 py-3 mb-3"
-      style={{ backgroundColor: "#EEF2FF", borderWidth: 1.5, borderColor: "#A5B4FC" }}
+      style={{
+        backgroundColor: theme.background,
+        borderWidth: 1.5,
+        borderColor: theme.border,
+      }}
     >
       <View className="flex-row items-center mb-1">
-        <Ionicons name="calendar-outline" size={18} color="#4338CA" />
+        <Ionicons name="calendar-outline" size={18} color={theme.iconColor} />
         <Text
           className="text-xl font-extrabold ml-2 flex-1"
-          style={{ color: "#312E81" }}
+          style={{ color: theme.title }}
           numberOfLines={2}
         >
           {dateLabel}
         </Text>
       </View>
       <View className="flex-row items-center">
-        <Ionicons
-          name={instant ? "flash" : "time-outline"}
-          size={17}
-          color="#1D4ED8"
-        />
-        <Text className="text-lg font-bold ml-2" style={{ color: "#1D4ED8" }}>
+        <View
+          className="w-8 h-8 rounded-xl items-center justify-center mr-2"
+          style={{ backgroundColor: theme.iconBg }}
+        >
+          <Ionicons name={theme.icon} size={17} color={theme.iconColor} />
+        </View>
+        <Text className="text-lg font-bold" style={{ color: theme.subtitle }}>
           {slotLabel}
         </Text>
+        {theme.accentIcon ? (
+          <Ionicons
+            name={theme.accentIcon}
+            size={14}
+            color={theme.iconColor}
+            style={{ marginLeft: 6 }}
+          />
+        ) : null}
       </View>
     </View>
   );

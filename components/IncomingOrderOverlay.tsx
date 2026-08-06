@@ -22,6 +22,7 @@ import {
   getOrderId,
   getOrderLineItems,
   getOrderTitle,
+  getSlotCardTheme,
   isInstantOrder,
   formatCountdown,
   getInstantDeadline,
@@ -99,6 +100,7 @@ export default function IncomingOrderOverlay({
       })
     : "";
   const isAccepting = acceptingOrderId === orderId;
+  const theme = getSlotCardTheme(pendingOrder.slot, { instant });
 
   return (
     <Modal visible transparent animationType="fade" statusBarTranslucent>
@@ -176,26 +178,61 @@ export default function IncomingOrderOverlay({
 
           <View
             style={{
-              backgroundColor: "#FFF",
+              backgroundColor: theme.background,
               borderRadius: 24,
               padding: 20,
+              borderWidth: 2,
+              borderColor: theme.border,
             }}
           >
-            <Text style={{ fontSize: 12, color: "#64748B", fontWeight: "700" }}>
+            <View
+              style={{
+                alignSelf: "flex-start",
+                flexDirection: "row",
+                alignItems: "center",
+                backgroundColor: theme.badgeBg,
+                borderRadius: 999,
+                paddingHorizontal: 10,
+                paddingVertical: 5,
+                marginBottom: 10,
+              }}
+            >
+              <Ionicons name={theme.icon} size={14} color={theme.badgeText} />
+              <Text
+                style={{
+                  marginLeft: 6,
+                  fontSize: 12,
+                  fontWeight: "800",
+                  color: theme.badgeText,
+                }}
+              >
+                {instant ? "INSTANT" : formatSlotLabel(pendingOrder.slot).toUpperCase()}
+              </Text>
+              {theme.accentIcon ? (
+                <Ionicons
+                  name={theme.accentIcon}
+                  size={12}
+                  color={theme.badgeText}
+                  style={{ marginLeft: 4 }}
+                />
+              ) : null}
+            </View>
+
+            <Text style={{ fontSize: 12, color: theme.muted, fontWeight: "700" }}>
               ORDER #{shortId}
             </Text>
             <Text
               style={{
                 fontSize: 22,
                 fontWeight: "800",
-                color: "#0F172A",
+                color: theme.title,
                 marginTop: 4,
               }}
               numberOfLines={2}
             >
               {getOrderTitle(pendingOrder)}
             </Text>
-            <Text style={{ fontSize: 15, color: "#475569", marginTop: 6 }}>
+            <Text style={{ fontSize: 15, color: theme.subtitle, marginTop: 6 }}>
               {pendingOrder.user_name || "Customer"}
               {pendingOrder.user_phone ? ` • ${pendingOrder.user_phone}` : ""}
             </Text>
@@ -203,34 +240,54 @@ export default function IncomingOrderOverlay({
             <View
               style={{
                 marginTop: 14,
-                backgroundColor: "#F8FAFC",
+                backgroundColor: theme.isDark ? "#1E293B" : "#F8FAFC",
                 borderRadius: 16,
                 padding: 14,
               }}
             >
-              <Text style={{ fontSize: 12, fontWeight: "700", color: "#64748B" }}>
+              <Text style={{ fontSize: 12, fontWeight: "700", color: theme.muted }}>
                 ITEMS
               </Text>
               <Text
-                style={{ fontSize: 16, fontWeight: "700", color: "#0F172A", marginTop: 4 }}
+                style={{
+                  fontSize: 16,
+                  fontWeight: "700",
+                  color: theme.title,
+                  marginTop: 4,
+                }}
               >
                 {itemPreview || getOrderTitle(pendingOrder)}
               </Text>
-              <Text style={{ fontSize: 13, color: "#475569", marginTop: 8 }}>
-                {formatDeliveryDateLabel(pendingOrder, Date.now())}
-                {pendingOrder.slot
-                  ? ` • ${formatSlotLabel(pendingOrder.slot)} slot`
-                  : ""}
-              </Text>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  marginTop: 8,
+                }}
+              >
+                <Ionicons name={theme.icon} size={14} color={theme.iconColor} />
+                <Text
+                  style={{
+                    fontSize: 13,
+                    color: theme.subtitle,
+                    marginLeft: 6,
+                  }}
+                >
+                  {formatDeliveryDateLabel(pendingOrder, Date.now())}
+                  {pendingOrder.slot
+                    ? ` • ${formatSlotLabel(pendingOrder.slot)}`
+                    : ""}
+                </Text>
+              </View>
               {address ? (
                 <View style={{ flexDirection: "row", marginTop: 8 }}>
-                  <Ionicons name="location-outline" size={14} color="#64748B" />
+                  <Ionicons name="location-outline" size={14} color={theme.muted} />
                   <Text
                     style={{
                       flex: 1,
                       marginLeft: 6,
                       fontSize: 13,
-                      color: "#475569",
+                      color: theme.subtitle,
                     }}
                     numberOfLines={2}
                   >
@@ -245,7 +302,7 @@ export default function IncomingOrderOverlay({
               disabled={isAccepting}
               style={{
                 marginTop: 18,
-                backgroundColor: Colors.primary,
+                backgroundColor: theme.ctaBg,
                 borderRadius: 18,
                 paddingVertical: 16,
                 alignItems: "center",

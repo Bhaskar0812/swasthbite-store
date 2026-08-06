@@ -13,6 +13,7 @@ import {
   getInstantDeadline,
   getOrderId,
   getOrderLineItems,
+  getSlotCardTheme,
   isInstantOrder,
   isPendingAcceptance,
   PREP_BUCKETS,
@@ -47,6 +48,7 @@ const SimpleOrderRow = ({
 }) => {
   const instant = isInstantOrder(order);
   const pending = isPendingAcceptance(order);
+  const theme = getSlotCardTheme(order.slot, { instant });
   const lineItems = getOrderLineItems(order);
   const orderKey = getOrderId(order);
   const isUpdating = Boolean(
@@ -59,12 +61,9 @@ const SimpleOrderRow = ({
     ? formatCountdown(getInstantDeadline(order), now, { withSeconds: true })
     : "";
 
-  const borderColor = instant
-    ? "#2563EB"
-    : pending
-      ? "#D97706"
-      : "#E2E8F0";
-  const bg = instant ? "#EFF6FF" : pending ? "#FFFBEB" : "#FFFFFF";
+  // Pending acceptance keeps an amber ring so urgency still stands out
+  const borderColor = pending ? "#D97706" : theme.border;
+  const borderWidth = pending || instant || theme.isDark ? 2 : 1.5;
 
   return (
     <TouchableOpacity
@@ -72,36 +71,72 @@ const SimpleOrderRow = ({
       onPress={onPress}
       style={{
         borderRadius: 18,
-        backgroundColor: bg,
-        borderWidth: 1.5,
+        backgroundColor: theme.background,
+        borderWidth,
         borderColor,
         padding: 16,
         marginBottom: 12,
+        overflow: "hidden",
       }}
     >
-      <View className="flex-row items-start justify-between mb-1">
-        <View className="flex-1 pr-2">
-          <Text className="text-lg font-extrabold text-slate-900" numberOfLines={1}>
-            {order.user_name || "Customer"}
-          </Text>
-          {order.user_phone ? (
-            <Text className="text-sm text-slate-500 mt-0.5">{order.user_phone}</Text>
-          ) : null}
+      {/* Decorative slot cue (sun / stars) in the corner */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          top: 10,
+          right: 12,
+          opacity: theme.isDark ? 0.35 : 0.18,
+        }}
+      >
+        <Ionicons name={theme.icon} size={52} color={theme.iconColor} />
+      </View>
+
+      <View className="flex-row items-start justify-between mb-2">
+        <View className="flex-row items-center flex-1 pr-2">
+          <View
+            className="w-11 h-11 rounded-2xl items-center justify-center mr-3"
+            style={{ backgroundColor: theme.iconBg }}
+          >
+            <Ionicons name={theme.icon} size={22} color={theme.iconColor} />
+            {theme.accentIcon ? (
+              <View style={{ position: "absolute", top: -2, right: -2 }}>
+                <Ionicons name={theme.accentIcon} size={12} color={theme.iconColor} />
+              </View>
+            ) : null}
+          </View>
+          <View className="flex-1">
+            <Text
+              className="text-lg font-extrabold"
+              style={{ color: theme.title }}
+              numberOfLines={1}
+            >
+              {order.user_name || "Customer"}
+            </Text>
+            {order.user_phone ? (
+              <Text className="text-sm mt-0.5" style={{ color: theme.muted }}>
+                {order.user_phone}
+              </Text>
+            ) : null}
+          </View>
         </View>
         <View
-          className="px-2.5 py-1 rounded-full"
-          style={{ backgroundColor: instant ? "#2563EB" : "#F1F5F9" }}
+          className="flex-row items-center px-2.5 py-1 rounded-full"
+          style={{ backgroundColor: theme.badgeBg }}
         >
-          <Text
-            className="text-xs font-bold"
-            style={{ color: instant ? "#fff" : "#334155" }}
-          >
+          <Ionicons
+            name={theme.icon}
+            size={12}
+            color={theme.badgeText}
+            style={{ marginRight: 4 }}
+          />
+          <Text className="text-xs font-bold" style={{ color: theme.badgeText }}>
             {instant ? "INSTANT" : formatSlotLabel(order.slot)}
           </Text>
         </View>
       </View>
 
-      <Text className="text-base font-semibold text-slate-700 mb-2">
+      <Text className="text-base font-semibold mb-2" style={{ color: theme.subtitle }}>
         {instant ? "Deliver ASAP" : `Deliver by ${formatDeliverByTime(order)}`}
       </Text>
 
@@ -110,26 +145,31 @@ const SimpleOrderRow = ({
           {lineItems.slice(0, 3).map((item, idx) => (
             <Text
               key={`${item.name}-${idx}`}
-              className="text-base font-bold text-slate-900"
+              className="text-base font-bold"
+              style={{ color: theme.title }}
               numberOfLines={1}
             >
               {item.name} ×{item.qty}
             </Text>
           ))}
           {lineItems.length > 3 ? (
-            <Text className="text-sm text-slate-500 mt-0.5">
+            <Text className="text-sm mt-0.5" style={{ color: theme.muted }}>
               +{lineItems.length - 3} more items
             </Text>
           ) : null}
         </View>
       ) : (
-        <Text className="text-base font-semibold text-slate-600 mb-3" numberOfLines={2}>
+        <Text
+          className="text-base font-semibold mb-3"
+          style={{ color: theme.subtitle }}
+          numberOfLines={2}
+        >
           {order.meal_name || order.package_name || "Order"}
         </Text>
       )}
 
       {instant && countdown ? (
-        <Text className="text-base font-extrabold text-blue-700 mb-2">
+        <Text className="text-base font-extrabold mb-2" style={{ color: theme.subtitle }}>
           Time left: {countdown}
         </Text>
       ) : null}
@@ -144,7 +184,7 @@ const SimpleOrderRow = ({
           className="rounded-xl py-3.5 items-center"
           style={{
             backgroundColor:
-              primaryAction.value === "out_for_delivery" ? "#059669" : "#1D4ED8",
+              primaryAction.value === "out_for_delivery" ? "#059669" : theme.ctaBg,
             opacity: isUpdating ? 0.6 : 1,
           }}
         >
@@ -153,7 +193,7 @@ const SimpleOrderRow = ({
           </Text>
         </TouchableOpacity>
       ) : (
-        <Text className="text-sm font-semibold text-slate-500 text-center">
+        <Text className="text-sm font-semibold text-center" style={{ color: theme.muted }}>
           Tap for details
         </Text>
       )}

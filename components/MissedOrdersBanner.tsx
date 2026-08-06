@@ -1,8 +1,12 @@
 import { View, Text, TouchableOpacity, ScrollView } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import type { DashboardData, DashboardOrder } from "types";
-import { formatSlotLabel, getOrderId, getOrderTitle } from "utils/orderActivity";
-import { Colors } from "constants/theme";
+import {
+  formatSlotLabel,
+  getOrderId,
+  getOrderTitle,
+  getSlotCardTheme,
+} from "utils/orderActivity";
 
 type Props = {
   dashboard: DashboardData | null | undefined;
@@ -66,6 +70,7 @@ export default function MissedOrdersBanner({ dashboard, onOrderPress }: Props) {
       >
         {missedOrders.map((order) => {
           const orderId = getOrderId(order);
+          const theme = getSlotCardTheme(order.slot);
           return (
             <TouchableOpacity
               key={`${orderId}-${order.date}-${order.slot}`}
@@ -74,32 +79,71 @@ export default function MissedOrdersBanner({ dashboard, onOrderPress }: Props) {
               style={{
                 width: 280,
                 borderRadius: 20,
-                borderWidth: 1,
-                borderColor: "#FECACA",
-                backgroundColor: "#FEF2F2",
+                borderWidth: 2,
+                borderColor: "#F87171",
+                backgroundColor: theme.background,
                 padding: 16,
+                overflow: "hidden",
               }}
             >
-              <Text className="text-sm font-bold text-red-700 uppercase">
-                Missed • {formatSlotLabel(order.slot)}
-              </Text>
+              <View
+                pointerEvents="none"
+                style={{
+                  position: "absolute",
+                  top: 8,
+                  right: 10,
+                  opacity: theme.isDark ? 0.35 : 0.2,
+                }}
+              >
+                <Ionicons name={theme.icon} size={48} color={theme.iconColor} />
+              </View>
+
+              <View className="flex-row items-center mb-1">
+                <View
+                  className="w-8 h-8 rounded-xl items-center justify-center mr-2"
+                  style={{ backgroundColor: theme.iconBg }}
+                >
+                  <Ionicons name={theme.icon} size={16} color={theme.iconColor} />
+                </View>
+                <Text
+                  className="text-sm font-bold uppercase"
+                  style={{ color: theme.isDark ? "#FCA5A5" : "#B91C1C" }}
+                >
+                  Missed • {formatSlotLabel(order.slot)}
+                </Text>
+              </View>
               <Text
-                className="text-lg font-extrabold text-textPrimary mt-1"
+                className="text-lg font-extrabold mt-1"
+                style={{ color: theme.title }}
                 numberOfLines={2}
               >
                 {getOrderTitle(order)}
               </Text>
-              <Text className="text-base text-textSecondary mt-1" numberOfLines={1}>
+              <Text
+                className="text-base mt-1"
+                style={{ color: theme.muted }}
+                numberOfLines={1}
+              >
                 {order.user_name || "Customer"}
               </Text>
-              <Text className="text-base font-semibold mt-2" style={{ color: Colors.error }}>
+              <Text
+                className="text-base font-semibold mt-2"
+                style={{ color: theme.subtitle }}
+              >
                 {formatDateLabel(order.date)}
               </Text>
               <View className="flex-row items-center mt-3">
-                <Text className="text-base font-bold" style={{ color: "#B91C1C" }}>
+                <Text
+                  className="text-base font-bold"
+                  style={{ color: theme.isDark ? "#FCA5A5" : "#B91C1C" }}
+                >
                   Tap to manage
                 </Text>
-                <Ionicons name="chevron-forward" size={18} color="#B91C1C" />
+                <Ionicons
+                  name="chevron-forward"
+                  size={18}
+                  color={theme.isDark ? "#FCA5A5" : "#B91C1C"}
+                />
               </View>
             </TouchableOpacity>
           );

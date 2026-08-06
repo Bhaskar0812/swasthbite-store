@@ -299,6 +299,152 @@ export const SLOT_META: Record<
   },
 };
 
+/** Visual theme so kitchen staff can spot slot at a glance. */
+export type SlotCardTheme = {
+  key: string;
+  label: string;
+  /** Ionicons glyph */
+  icon: "sunny" | "sunny-outline" | "partly-sunny" | "moon" | "flash" | "restaurant";
+  /** Accent sparkles for dinner / soft glow for morning */
+  accentIcon?: "sparkles" | "star";
+  background: string;
+  border: string;
+  title: string;
+  subtitle: string;
+  muted: string;
+  badgeBg: string;
+  badgeText: string;
+  iconBg: string;
+  iconColor: string;
+  ctaBg: string;
+  isDark: boolean;
+};
+
+const SLOT_CARD_THEMES: Record<string, SlotCardTheme> = {
+  morning: {
+    key: "morning",
+    label: "Morning",
+    icon: "sunny",
+    accentIcon: "star",
+    background: "#FFFBEB",
+    border: "#F59E0B",
+    title: "#78350F",
+    subtitle: "#92400E",
+    muted: "#B45309",
+    badgeBg: "#F59E0B",
+    badgeText: "#FFFBEB",
+    iconBg: "#FEF3C7",
+    iconColor: "#D97706",
+    ctaBg: "#D97706",
+    isDark: false,
+  },
+  lunch: {
+    key: "lunch",
+    label: "Lunch",
+    icon: "sunny-outline",
+    background: "#FFFFFF",
+    border: "#38BDF8",
+    title: "#0F172A",
+    subtitle: "#334155",
+    muted: "#64748B",
+    badgeBg: "#E0F2FE",
+    badgeText: "#0369A1",
+    iconBg: "#F0F9FF",
+    iconColor: "#0284C7",
+    ctaBg: "#0284C7",
+    isDark: false,
+  },
+  evening: {
+    key: "evening",
+    label: "Evening",
+    icon: "partly-sunny",
+    background: "#FFF7ED",
+    border: "#EA580C",
+    title: "#7C2D12",
+    subtitle: "#9A3412",
+    muted: "#C2410C",
+    badgeBg: "#EA580C",
+    badgeText: "#FFF7ED",
+    iconBg: "#FFEDD5",
+    iconColor: "#EA580C",
+    ctaBg: "#C2410C",
+    isDark: false,
+  },
+  dinner: {
+    key: "dinner",
+    label: "Dinner",
+    icon: "moon",
+    accentIcon: "sparkles",
+    background: "#0F172A",
+    border: "#6366F1",
+    title: "#F8FAFC",
+    subtitle: "#CBD5E1",
+    muted: "#94A3B8",
+    badgeBg: "#312E81",
+    badgeText: "#E0E7FF",
+    iconBg: "#1E1B4B",
+    iconColor: "#A5B4FC",
+    ctaBg: "#4F46E5",
+    isDark: true,
+  },
+  instant: {
+    key: "instant",
+    label: "Instant",
+    icon: "flash",
+    background: "#EFF6FF",
+    border: "#2563EB",
+    title: "#1E3A8A",
+    subtitle: "#1D4ED8",
+    muted: "#3B82F6",
+    badgeBg: "#2563EB",
+    badgeText: "#FFFFFF",
+    iconBg: "#DBEAFE",
+    iconColor: "#1D4ED8",
+    ctaBg: "#1D4ED8",
+    isDark: false,
+  },
+};
+
+const DEFAULT_SLOT_THEME: SlotCardTheme = {
+  key: "default",
+  label: "Meal",
+  icon: "restaurant",
+  background: "#FFFFFF",
+  border: "#E2E8F0",
+  title: "#0F172A",
+  subtitle: "#475569",
+  muted: "#64748B",
+  badgeBg: "#F1F5F9",
+  badgeText: "#334155",
+  iconBg: "#F8FAFC",
+  iconColor: "#64748B",
+  ctaBg: "#1D4ED8",
+  isDark: false,
+};
+
+export const getSlotCardTheme = (
+  slot?: string | null,
+  options?: { instant?: boolean },
+): SlotCardTheme => {
+  if (options?.instant) return SLOT_CARD_THEMES.instant;
+  const key = String(slot || "")
+    .trim()
+    .toLowerCase();
+  if (key === "both") {
+    // Dual-slot: lean lunch light + dinner cue via evening amber border
+    return {
+      ...SLOT_CARD_THEMES.lunch,
+      key: "both",
+      label: "Lunch + Dinner",
+      icon: "restaurant",
+      border: "#6366F1",
+      badgeBg: "#EEF2FF",
+      badgeText: "#4338CA",
+    };
+  }
+  return SLOT_CARD_THEMES[key] || DEFAULT_SLOT_THEME;
+};
+
 export type DayTab = "today" | "tomorrow";
 export type SlotFilter =
   | "all"

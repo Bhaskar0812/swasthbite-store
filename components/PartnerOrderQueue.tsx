@@ -18,6 +18,7 @@ import {
   getInstantDeadline,
   getOrderCardKey,
   getOrderTitle,
+  getSlotCardTheme,
   isInstantOrder,
   isPendingAcceptance,
   isPreparingStatus,
@@ -63,7 +64,9 @@ const QueueChip = ({
   onPress: () => void;
 }) => {
   const pending = isPendingAcceptance(order);
-  const slot = isInstantOrder(order) ? "Instant" : formatSlotLabel(order.slot);
+  const instant = isInstantOrder(order);
+  const theme = getSlotCardTheme(order.slot, { instant });
+  const slot = instant ? "Instant" : formatSlotLabel(order.slot);
 
   return (
     <TouchableOpacity
@@ -73,14 +76,15 @@ const QueueChip = ({
       style={{
         minWidth: 108,
         borderWidth: 2,
-        borderColor: selected ? "#1D4ED8" : "#E2E8F0",
-        backgroundColor: selected ? "#EFF6FF" : "#fff",
+        borderColor: selected ? theme.border : theme.border,
+        backgroundColor: selected ? theme.background : theme.background,
+        opacity: selected ? 1 : 0.85,
       }}
     >
       <View className="flex-row items-center justify-between mb-1">
         <Text
           className="text-[10px] font-extrabold"
-          style={{ color: selected ? "#1D4ED8" : "#64748B" }}
+          style={{ color: theme.muted }}
         >
           #{index + 1}
         </Text>
@@ -94,14 +98,17 @@ const QueueChip = ({
           </View>
         ) : null}
       </View>
-      <Text
-        className="text-xs font-bold"
-        style={{ color: selected ? "#1E3A8A" : "#334155" }}
-        numberOfLines={1}
-      >
-        {slot}
-      </Text>
-      <Text className="text-[10px] text-slate-500 mt-0.5" numberOfLines={1}>
+      <View className="flex-row items-center">
+        <Ionicons name={theme.icon} size={14} color={theme.iconColor} />
+        <Text
+          className="text-xs font-bold ml-1"
+          style={{ color: theme.title }}
+          numberOfLines={1}
+        >
+          {slot}
+        </Text>
+      </View>
+      <Text className="text-[10px] mt-0.5" style={{ color: theme.muted }} numberOfLines={1}>
         {order.user_name || "Customer"}
       </Text>
       {pending ? (
@@ -121,33 +128,43 @@ const UpNextRow = ({
   order: DashboardOrder;
   index: number;
   onPress: () => void;
-}) => (
-  <TouchableOpacity
-    onPress={onPress}
-    activeOpacity={0.85}
-    className="flex-row items-center rounded-2xl px-3 py-3 mb-2"
-    style={{ backgroundColor: "#F8FAFC", borderWidth: 1, borderColor: "#E2E8F0" }}
-  >
-    <View
-      className="w-8 h-8 rounded-full items-center justify-center mr-3"
-      style={{ backgroundColor: "#DBEAFE" }}
+}) => {
+  const instant = isInstantOrder(order);
+  const theme = getSlotCardTheme(order.slot, { instant });
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.85}
+      className="flex-row items-center rounded-2xl px-3 py-3 mb-2"
+      style={{
+        backgroundColor: theme.background,
+        borderWidth: 1,
+        borderColor: theme.border,
+      }}
     >
-      <Text className="text-xs font-extrabold" style={{ color: "#1D4ED8" }}>
-        {index + 1}
-      </Text>
-    </View>
-    <View className="flex-1 min-w-0">
-      <Text className="text-sm font-bold text-slate-900" numberOfLines={1}>
-        {isInstantOrder(order) ? "Instant" : formatSlotLabel(order.slot)} •{" "}
-        {order.user_name || "Customer"}
-      </Text>
-      <Text className="text-xs text-slate-500 mt-0.5" numberOfLines={1}>
-        {formatStatusLabel(order.status)}
-      </Text>
-    </View>
-    <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-  </TouchableOpacity>
-);
+      <View
+        className="w-8 h-8 rounded-full items-center justify-center mr-3"
+        style={{ backgroundColor: theme.iconBg }}
+      >
+        <Ionicons name={theme.icon} size={16} color={theme.iconColor} />
+      </View>
+      <View className="flex-1 min-w-0">
+        <Text
+          className="text-sm font-bold"
+          style={{ color: theme.title }}
+          numberOfLines={1}
+        >
+          {instant ? "Instant" : formatSlotLabel(order.slot)} •{" "}
+          {order.user_name || "Customer"}
+        </Text>
+        <Text className="text-xs mt-0.5" style={{ color: theme.muted }}>
+          {formatStatusLabel(order.status)} · #{index + 1}
+        </Text>
+      </View>
+      <Ionicons name="chevron-forward" size={16} color={theme.muted} />
+    </TouchableOpacity>
+  );
+};
 
 export default function PartnerOrderQueue({
   dashboard,
@@ -227,6 +244,11 @@ export default function PartnerOrderQueue({
     ? (nextActions?.(currentStatus) || [])[0]
     : null;
   const isUpdating = Boolean(updatingOrder);
+  const currentTheme = currentOrder
+    ? getSlotCardTheme(currentOrder.slot, {
+        instant: isInstantOrder(currentOrder),
+      })
+    : null;
 
   return (
     <View className="mb-4">
@@ -278,15 +300,17 @@ export default function PartnerOrderQueue({
         </ScrollView>
       </View>
 
-      {currentOrder ? (
+      {currentOrder && currentTheme ? (
         <TouchableOpacity
           activeOpacity={0.9}
           onPress={() => onOrderPress(currentOrder)}
           className="rounded-3xl overflow-hidden mb-3"
           style={{
             borderWidth: 2,
-            borderColor: isPendingAcceptance(currentStatus) ? "#F59E0B" : "#1D4ED8",
-            backgroundColor: "#fff",
+            borderColor: isPendingAcceptance(currentStatus)
+              ? "#F59E0B"
+              : currentTheme.border,
+            backgroundColor: currentTheme.background,
             elevation: 4,
             shadowColor: "#1D4ED8",
             shadowOffset: { width: 0, height: 4 },
@@ -297,23 +321,41 @@ export default function PartnerOrderQueue({
           <View
             className="px-4 py-2 flex-row items-center justify-between"
             style={{
-              backgroundColor: isPendingAcceptance(currentStatus) ? "#FEF3C7" : "#EFF6FF",
+              backgroundColor: isPendingAcceptance(currentStatus)
+                ? "#FEF3C7"
+                : currentTheme.iconBg,
             }}
           >
             <View className="flex-row items-center">
               <View
                 className="px-2.5 py-1 rounded-full mr-2"
-                style={{ backgroundColor: isPendingAcceptance(currentStatus) ? "#DC2626" : "#1D4ED8" }}
+                style={{ backgroundColor: isPendingAcceptance(currentStatus) ? "#DC2626" : currentTheme.badgeBg }}
               >
-                <Text className="text-[11px] font-extrabold text-white">
+                <Text
+                  className="text-[11px] font-extrabold"
+                  style={{
+                    color: isPendingAcceptance(currentStatus)
+                      ? "#fff"
+                      : currentTheme.badgeText,
+                  }}
+                >
                   {isPendingAcceptance(currentStatus) ? "ACTION NEEDED" : "NOW"}
                 </Text>
               </View>
-              <Text className="text-sm font-bold text-slate-800">
+              <Ionicons
+                name={currentTheme.icon}
+                size={16}
+                color={currentTheme.iconColor}
+                style={{ marginRight: 6 }}
+              />
+              <Text className="text-sm font-bold" style={{ color: currentTheme.title }}>
                 Order {safeIndex + 1} of {queue.length}
               </Text>
             </View>
-            <Text className="text-xs font-semibold capitalize text-slate-600">
+            <Text
+              className="text-xs font-semibold capitalize"
+              style={{ color: currentTheme.muted }}
+            >
               {formatStatusLabel(currentStatus)}
             </Text>
           </View>
@@ -329,10 +371,18 @@ export default function PartnerOrderQueue({
           <View className="p-4">
             <DeliveryScheduleBanner order={currentOrder} now={now} />
 
-            <Text className="text-xl font-extrabold text-slate-900" numberOfLines={2}>
+            <Text
+              className="text-xl font-extrabold"
+              style={{ color: currentTheme.title }}
+              numberOfLines={2}
+            >
               {resolveTitle(currentOrder)}
             </Text>
-            <Text className="text-sm text-slate-600 mt-1" numberOfLines={1}>
+            <Text
+              className="text-sm mt-1"
+              style={{ color: currentTheme.muted }}
+              numberOfLines={1}
+            >
               {currentOrder.user_name || "Customer"}
               {currentOrder.user_phone ? ` • ${currentOrder.user_phone}` : ""}
             </Text>
@@ -365,9 +415,16 @@ export default function PartnerOrderQueue({
             ) : null}
 
             {getOrderAddress?.(currentOrder) ? (
-              <View className="flex-row items-start mt-3 bg-slate-50 rounded-xl px-3 py-2">
+              <View
+                className="flex-row items-start mt-3 rounded-xl px-3 py-2"
+                style={{ backgroundColor: currentTheme.isDark ? "#1E293B" : "#F8FAFC" }}
+              >
                 <Ionicons name="location-outline" size={14} color={Colors.info} style={{ marginTop: 2 }} />
-                <Text className="text-xs text-slate-600 ml-2 flex-1" numberOfLines={2}>
+                <Text
+                  className="text-xs ml-2 flex-1"
+                  style={{ color: currentTheme.subtitle }}
+                  numberOfLines={2}
+                >
                   {getOrderAddress(currentOrder)}
                 </Text>
               </View>
@@ -377,10 +434,17 @@ export default function PartnerOrderQueue({
               <TouchableOpacity
                 onPress={() => onOrderPress(currentOrder)}
                 className="flex-1 h-12 rounded-2xl flex-row items-center justify-center mr-2"
-                style={{ backgroundColor: "#EEF2FF", borderWidth: 1, borderColor: "#A5B4FC" }}
+                style={{
+                  backgroundColor: currentTheme.iconBg,
+                  borderWidth: 1,
+                  borderColor: currentTheme.border,
+                }}
               >
-                <Ionicons name="open-outline" size={16} color="#4338CA" />
-                <Text className="text-sm font-bold ml-1.5" style={{ color: "#4338CA" }}>
+                <Ionicons name="open-outline" size={16} color={currentTheme.iconColor} />
+                <Text
+                  className="text-sm font-bold ml-1.5"
+                  style={{ color: currentTheme.iconColor }}
+                >
                   Details
                 </Text>
               </TouchableOpacity>
@@ -390,7 +454,10 @@ export default function PartnerOrderQueue({
                   disabled={isUpdating}
                   className="flex-1 h-12 rounded-2xl flex-row items-center justify-center"
                   style={{
-                    backgroundColor: quickAction.value === "out_for_delivery" ? "#059669" : "#1D4ED8",
+                    backgroundColor:
+                      quickAction.value === "out_for_delivery"
+                        ? "#059669"
+                        : currentTheme.ctaBg,
                     opacity: isUpdating ? 0.6 : 1,
                   }}
                 >
