@@ -53,7 +53,7 @@ export default function MissedOrdersBanner({ dashboard, onOrderPress }: Props) {
               Missed Deliveries
             </Text>
             <Text className="text-red-100 text-sm mt-0.5">
-              {missedOrders.length} need action — reschedule, mark delivered, skip or cancel
+              {missedOrders.length} need action — mark delivered, reschedule, or mark rescheduled
             </Text>
           </View>
         </View>

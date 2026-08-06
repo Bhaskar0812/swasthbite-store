@@ -387,6 +387,13 @@ export const storeService = {
     const res = await api.put(`/store/orders/${orderId}/mark-delivered`, payload);
     return res.data;
   },
+  markMissedRescheduled: async (
+    orderId: string,
+    payload: { delivery_index?: number; date?: string; slot?: string; note?: string },
+  ) => {
+    const res = await api.put(`/store/orders/${orderId}/mark-rescheduled`, payload);
+    return res.data;
+  },
   cancelDelivery: async (
     orderId: string,
     payload: { date: string; slot?: string },

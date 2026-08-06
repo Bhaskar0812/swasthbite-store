@@ -10,6 +10,7 @@ export const FINAL_STATUSES = new Set([
   "cancelled",
   "skipped",
   "missed",
+  "rescheduled",
   "failed",
 ]);
 
@@ -96,7 +97,12 @@ export const isHiddenStoreDelivery = (
   skippedBy?: string | null,
 ) => {
   const value = String(status || "").toLowerCase();
-  if (value === "skipped" || value === "missed" || value === "cancelled") {
+  if (
+    value === "skipped" ||
+    value === "missed" ||
+    value === "cancelled" ||
+    value === "rescheduled"
+  ) {
     return true;
   }
   return String(skippedBy || "").toLowerCase() === "wallet";

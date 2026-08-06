@@ -222,7 +222,7 @@ export default function StoreOrderDetailScreen() {
     });
 
     return deliveries
-      .filter((delivery: any) => !['delivered', 'cancelled', 'skipped'].includes(delivery.status))
+      .filter((delivery: any) => !['delivered', 'cancelled', 'skipped', 'rescheduled'].includes(delivery.status))
       .filter(matchesFocusDate)
       .sort((a: any, b: any) => {
         if (a.sortDate !== b.sortDate) return a.sortDate - b.sortDate;
@@ -255,6 +255,40 @@ export default function StoreOrderDetailScreen() {
     } finally {
       setUpdatingKey(null);
     }
+  };
+
+  const markMissedRescheduled = async (delivery: any) => {
+    if (!apiOrderId) return;
+    const deliveryDateStr = toISTDateKey(delivery.date);
+    Alert.alert(
+      'Mark as rescheduled?',
+      'This removes the missed entry from your list. Use this when the delivery was already moved / auto-rescheduled so it stops coming back every day.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Mark Rescheduled',
+          onPress: async () => {
+            try {
+              setUpdatingKey('mark-rescheduled-' + delivery._id);
+              const res = await storeService.markMissedRescheduled(apiOrderId, {
+                delivery_index: delivery.delivery_index,
+                date: deliveryDateStr,
+                slot: delivery.slot,
+              });
+              setOrder(res.data?.subscription || res.data || order);
+              Alert.alert('Done', 'Missed delivery marked as rescheduled.');
+            } catch (error: any) {
+              Alert.alert(
+                'Error',
+                error?.response?.data?.message || 'Failed to mark as rescheduled',
+              );
+            } finally {
+              setUpdatingKey(null);
+            }
+          },
+        },
+      ],
+    );
   };
 
   const skipMissedDelivery = async (delivery: any) => {
@@ -446,7 +480,7 @@ export default function StoreOrderDetailScreen() {
 
   // Only show active deliveries (exclude skipped, missed, cancelled) in the timeline
   const deliveryGroups = (order.delivery_dates || [])
-    .filter((delivery: any) => !['skipped', 'missed', 'cancelled'].includes(String(delivery.status || '').toLowerCase()))
+    .filter((delivery: any) => !['skipped', 'missed', 'cancelled', 'rescheduled'].includes(String(delivery.status || '').toLowerCase()))
     .filter(matchesFocusDate)
     .reduce((groups: Record<string, any[]>, delivery: any) => {
       const dateKey = toISTDateKey(delivery.date);
@@ -722,6 +756,21 @@ export default function StoreOrderDetailScreen() {
                       </Text>
                     </TouchableOpacity>
                     <TouchableOpacity
+                      onPress={() => markMissedRescheduled(delivery)}
+                      disabled={updatingKey === 'mark-rescheduled-' + busyKey}
+                      className="flex-1 rounded-2xl px-3 py-3"
+                      style={{ backgroundColor: '#F5F3FF' }}
+                    >
+                      <Text className="text-base font-semibold text-center" style={{ color: '#6D28D9' }}>
+                        {updatingKey === 'mark-rescheduled-' + busyKey
+                          ? 'Updating...'
+                          : 'Mark Rescheduled'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <View className="flex-row gap-2 mb-2">
+                    <TouchableOpacity
                       onPress={() => skipMissedDelivery(delivery)}
                       disabled={updatingKey === 'skip-' + busyKey}
                       className="flex-1 rounded-2xl px-3 py-3"
@@ -731,18 +780,17 @@ export default function StoreOrderDetailScreen() {
                         Skip
                       </Text>
                     </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => cancelMissedDelivery(delivery)}
+                      disabled={updatingKey === 'cancel-' + busyKey}
+                      className="flex-1 rounded-2xl px-3 py-3"
+                      style={{ backgroundColor: '#FFF1F2' }}
+                    >
+                      <Text className="text-error text-base font-semibold text-center">
+                        {updatingKey === 'cancel-' + busyKey ? 'Cancelling...' : 'Cancel & Replace'}
+                      </Text>
+                    </TouchableOpacity>
                   </View>
-
-                  <TouchableOpacity
-                    onPress={() => cancelMissedDelivery(delivery)}
-                    disabled={updatingKey === 'cancel-' + busyKey}
-                    className="rounded-2xl px-4 py-3"
-                    style={{ backgroundColor: '#FFF1F2' }}
-                  >
-                    <Text className="text-error text-base font-semibold text-center">
-                      {updatingKey === 'cancel-' + busyKey ? 'Cancelling...' : 'Cancel & Replace at End'}
-                    </Text>
-                  </TouchableOpacity>
                 </View>
               );
             })}
