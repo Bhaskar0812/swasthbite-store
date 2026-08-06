@@ -91,13 +91,22 @@ export const isFinalStatus = (status?: string) =>
   FINAL_STATUSES.has(String(status || "").toLowerCase());
 
 /** Deliveries hidden from store lists (customer skipped / missed / cancelled). */
-export const isHiddenStoreDelivery = (status?: string) => {
+export const isHiddenStoreDelivery = (
+  status?: string,
+  skippedBy?: string | null,
+) => {
   const value = String(status || "").toLowerCase();
-  return value === "skipped" || value === "missed" || value === "cancelled";
+  if (value === "skipped" || value === "missed" || value === "cancelled") {
+    return true;
+  }
+  return String(skippedBy || "").toLowerCase() === "wallet";
 };
 
 export const filterVisibleStoreOrders = (orders: DashboardOrder[] = []) =>
-  orders.filter((order) => !isHiddenStoreDelivery(order.status));
+  orders.filter(
+    (order) =>
+      !isHiddenStoreDelivery(order.status, (order as any)?.skipped_by),
+  );
 
 export const isInstantOrder = (order: DashboardOrder) =>
   String(order.delivery_mode || "").toLowerCase() === "instant";
@@ -128,6 +137,57 @@ export const isPreparingStatus = (status?: string) => {
 export const isOutForDeliveryStatus = (status?: string) => {
   const value = String(status || "").toLowerCase();
   return ["out_for_delivery", "picked_up"].includes(value);
+};
+
+export type PrepBucket = "to_prepare" | "preparing" | "out";
+
+export const PREP_BUCKETS: {
+  key: PrepBucket;
+  label: string;
+  short: string;
+}[] = [
+  { key: "to_prepare", label: "To prepare", short: "Prep" },
+  { key: "preparing", label: "Preparing", short: "Kitchen" },
+  { key: "out", label: "Out", short: "Out" },
+];
+
+/** Map a delivery into the store prep queue bucket. */
+export const getPrepBucket = (order: DashboardOrder): PrepBucket | null => {
+  const status = String(order?.status || "").toLowerCase();
+  if (isHiddenStoreDelivery(status, (order as any)?.skipped_by)) return null;
+  if (["delivered", "completed", "failed"].includes(status)) return null;
+  if (isOutForDeliveryStatus(status)) return "out";
+  if (isPreparingStatus(status)) return "preparing";
+  if (
+    ["scheduled", "pending", "accepted"].includes(status) ||
+    isPendingAcceptance(order)
+  ) {
+    return "to_prepare";
+  }
+  return null;
+};
+
+export const filterOrdersByPrepBucket = (
+  orders: DashboardOrder[] = [],
+  bucket: PrepBucket | "all",
+) => {
+  if (bucket === "all") {
+    return orders.filter((o) => getPrepBucket(o) != null);
+  }
+  return orders.filter((o) => getPrepBucket(o) === bucket);
+};
+
+export const countOrdersByPrepBucket = (orders: DashboardOrder[] = []) => {
+  const counts: Record<PrepBucket, number> = {
+    to_prepare: 0,
+    preparing: 0,
+    out: 0,
+  };
+  for (const order of orders) {
+    const bucket = getPrepBucket(order);
+    if (bucket) counts[bucket] += 1;
+  }
+  return counts;
 };
 
 export const isDeliveredStatus = (status?: string) => {

@@ -36,7 +36,7 @@ export default function OrdersScreen() {
   );
 
   const todayAllOrders = (dashboard?.today_orders || []).filter(
-    (item) => !isHiddenStoreDelivery(item.status),
+    (item) => !isHiddenStoreDelivery(item.status, (item as any)?.skipped_by),
   );
 
   const preparingCount = todayAllOrders.filter((item) =>
@@ -94,7 +94,7 @@ export default function OrdersScreen() {
   };
 
   const tomorrowCount = useMemo(
-    () => (dashboard?.tomorrow_orders || []).filter((item) => !isHiddenStoreDelivery(item.status)).length,
+    () => (dashboard?.tomorrow_orders || []).filter((item) => !isHiddenStoreDelivery(item.status, (item as any)?.skipped_by)).length,
     [dashboard?.tomorrow_orders],
   );
 

@@ -12,8 +12,10 @@ import { Ionicons } from "@expo/vector-icons";
 import type { DashboardData, DashboardOrder } from "types";
 import {
   countOrdersBySlot,
+  countOrdersByPrepBucket,
   DayTab,
   filterOrdersBySlot,
+  filterOrdersByPrepBucket,
   formatCountdown,
   formatDeliveryDateLabel,
   formatDueTime,
@@ -25,9 +27,12 @@ import {
   getInstantDeadline,
   getOrderId,
   getOrderLineItems,
+  getPrepBucket,
   isInstantOrder,
   isPendingAcceptance,
   isPreparingStatus,
+  PREP_BUCKETS,
+  PrepBucket,
   sortActiveOrdersForBoard,
   SLOT_FILTERS,
   SlotFilter,
@@ -294,6 +299,7 @@ export default function LiveOrderActivityBoard({
 }: Props) {
   const [now, setNow] = useState(Date.now());
   const [dayTab, setDayTab] = useState<DayTab>("today");
+  const [prepBucket, setPrepBucket] = useState<PrepBucket>("to_prepare");
   const [slotFilter, setSlotFilter] = useState<SlotFilter>("all");
   const [activeIndex, setActiveIndex] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
@@ -311,12 +317,25 @@ export default function LiveOrderActivityBoard({
     [dashboard],
   );
 
-  const slotCounts = useMemo(() => countOrdersBySlot(dayOrders), [dayOrders]);
+  const bucketCounts = useMemo(
+    () => countOrdersByPrepBucket(dayOrders),
+    [dayOrders],
+  );
+
+  const bucketOrders = useMemo(
+    () => filterOrdersByPrepBucket(dayOrders, prepBucket),
+    [dayOrders, prepBucket],
+  );
+
+  const slotCounts = useMemo(
+    () => countOrdersBySlot(bucketOrders),
+    [bucketOrders],
+  );
 
   const orders = useMemo(
     () =>
-      sortActiveOrdersForBoard(filterOrdersBySlot(dayOrders, slotFilter)),
-    [dayOrders, slotFilter],
+      sortActiveOrdersForBoard(filterOrdersBySlot(bucketOrders, slotFilter)),
+    [bucketOrders, slotFilter],
   );
 
   const todayCount = dashboard?.today_orders?.length || 0;
@@ -324,10 +343,6 @@ export default function LiveOrderActivityBoard({
   const todayActiveCount = todayActionableCount;
 
   const pendingCount = dayOrders.filter((o) => isPendingAcceptance(o)).length;
-  const preparingCount = dayOrders.filter((o) => isPreparingStatus(o.status)).length;
-  const outCount = dayOrders.filter((o) =>
-    ["out_for_delivery", "picked_up"].includes(String(o.status || "").toLowerCase()),
-  ).length;
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -337,7 +352,7 @@ export default function LiveOrderActivityBoard({
   useEffect(() => {
     setActiveIndex(0);
     scrollRef.current?.scrollTo({ x: 0, animated: false });
-  }, [dayTab, slotFilter]);
+  }, [dayTab, prepBucket, slotFilter]);
 
   useEffect(() => {
     if (activeIndex >= orders.length) {
@@ -345,11 +360,24 @@ export default function LiveOrderActivityBoard({
     }
   }, [orders.length, activeIndex]);
 
+  useEffect(() => {
+    if (orders.length > 0) return;
+    const next = PREP_BUCKETS.find((b) => bucketCounts[b.key] > 0);
+    if (next && next.key !== prepBucket) setPrepBucket(next.key);
+  }, [orders.length, bucketCounts, prepBucket]);
+
   const onScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const offsetX = event.nativeEvent.contentOffset.x;
     const nextIndex = Math.round(offsetX / (CARD_WIDTH + CARD_GAP));
     setActiveIndex(Math.max(0, Math.min(nextIndex, Math.max(orders.length - 1, 0))));
   };
+
+  const bucketHeadline =
+    prepBucket === "to_prepare"
+      ? "Needs kitchen action"
+      : prepBucket === "preparing"
+        ? "In the kitchen"
+        : "Handed to rider";
 
   return (
     <View
@@ -367,14 +395,14 @@ export default function LiveOrderActivityBoard({
               className="w-10 h-10 rounded-2xl items-center justify-center"
               style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
             >
-              <Ionicons name="pulse" size={20} color="#fff" />
+              <Ionicons name="restaurant" size={20} color="#fff" />
             </View>
             <View className="ml-3 flex-1">
-              <Text className="text-xs font-semibold text-blue-100">Kitchen Live</Text>
+              <Text className="text-xs font-semibold text-blue-100">Prep queue</Text>
               <Text className="text-lg font-extrabold text-white">
                 {orders.length > 0
-                  ? `${orders.length} order${orders.length === 1 ? "" : "s"} to manage`
-                  : "No orders in this slot"}
+                  ? `${orders.length} in ${bucketHeadline.toLowerCase()}`
+                  : bucketHeadline}
               </Text>
             </View>
           </View>
@@ -408,14 +436,36 @@ export default function LiveOrderActivityBoard({
           })}
         </View>
 
-        <View className="flex-row mt-3">
-          <StatPill label="New" value={pendingCount} color="#92400E" bg="rgba(255,255,255,0.92)" />
-          <StatPill label="Preparing" value={preparingCount} color="#1D4ED8" bg="rgba(255,255,255,0.92)" />
-          <StatPill label="Out" value={outCount} color="#047857" bg="rgba(255,255,255,0.92)" />
+        <View className="flex-row mt-3 rounded-xl p-1" style={{ backgroundColor: "rgba(255,255,255,0.12)" }}>
+          {PREP_BUCKETS.map((bucket) => {
+            const active = prepBucket === bucket.key;
+            const count = bucketCounts[bucket.key];
+            return (
+              <TouchableOpacity
+                key={bucket.key}
+                onPress={() => setPrepBucket(bucket.key)}
+                className="flex-1 py-2.5 rounded-lg items-center mx-0.5"
+                style={{ backgroundColor: active ? "#fff" : "transparent" }}
+              >
+                <Text
+                  className="text-[11px] font-extrabold"
+                  style={{ color: active ? "#1D4ED8" : "#E0E7FF" }}
+                >
+                  {bucket.label}
+                </Text>
+                <Text
+                  className="text-base font-black mt-0.5"
+                  style={{ color: active ? "#1D4ED8" : "#FFF" }}
+                >
+                  {count}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </View>
 
-      {pendingCount > 0 ? (
+      {pendingCount > 0 && prepBucket === "to_prepare" ? (
         <View
           style={{
             backgroundColor: "#DC2626",
@@ -511,7 +561,7 @@ export default function LiveOrderActivityBoard({
             </View>
 
             <Text className="text-center text-[11px] text-slate-500 mt-2 px-4">
-              Swipe cards • Tap for full order • Use slot tabs to focus on one meal window
+              Buckets: To prepare → Preparing → Out · Slot chips filter within bucket
             </Text>
           </>
         ) : (
@@ -519,8 +569,8 @@ export default function LiveOrderActivityBoard({
             <Ionicons name="restaurant-outline" size={36} color="#94A3B8" />
             <Text className="text-sm text-slate-500 mt-2 text-center">
               {dayTab === "today"
-                ? "No active orders for this slot today."
-                : "No orders scheduled for this slot tomorrow."}
+                ? `Nothing in "${bucketHeadline}" for this filter.`
+                : "No orders scheduled for this bucket tomorrow."}
             </Text>
           </View>
         )}

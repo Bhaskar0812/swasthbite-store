@@ -197,7 +197,7 @@ export default function DashboardScreen() {
     sortStoreOrdersByDateAndSlot(orders, { dateDirection, instantFirst: true });
 
   const todayOrders = sortOrders(
-    (dashboard?.today_orders || []).filter((o) => !isHiddenStoreDelivery(o.status)),
+    (dashboard?.today_orders || []).filter((o) => !isHiddenStoreDelivery(o.status, (o as any)?.skipped_by)),
     'asc',
   );
 
