@@ -394,6 +394,14 @@ export const storeService = {
     const res = await api.put(`/store/orders/${orderId}/mark-rescheduled`, payload);
     return res.data;
   },
+  getCatalogRequests: async (params?: { entity_type?: string; status?: string }) => {
+    const res = await api.get("/store/catalog-requests", { params });
+    return res.data;
+  },
+  submitMenuItemCatalogRequest: async (payload: Record<string, unknown>) => {
+    const res = await api.post("/store/catalog-requests/menu-items", payload);
+    return res.data;
+  },
   cancelDelivery: async (
     orderId: string,
     payload: { date: string; slot?: string },

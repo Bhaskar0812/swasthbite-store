@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useCallback } from 'react';
+import { useEffect, useMemo, useCallback, useState } from 'react';
 import {
+  Alert,
   View,
   Text,
   RefreshControl,
@@ -10,6 +11,8 @@ import { StatusBar } from 'expo-status-bar';
 import { router, useFocusEffect } from 'expo-router';
 import { Colors } from 'constants/theme';
 import { useStoreStore } from 'store/storeStore';
+import { storeService } from 'services/storeService';
+import { transitionAcceptedOrder } from 'services/incomingOrderAlertService';
 import type { DashboardOrder } from 'types';
 import LiveOrderActivityBoard from 'components/LiveOrderActivityBoard';
 import MissedOrdersBanner from 'components/MissedOrdersBanner';
@@ -23,6 +26,7 @@ import {
 
 export default function OrdersScreen() {
   const { dashboard, loading, fetchDashboard, fetchPackages } = useStoreStore();
+  const [updatingOrder, setUpdatingOrder] = useState<string | null>(null);
 
   useEffect(() => {
     fetchDashboard();
@@ -77,6 +81,86 @@ export default function OrdersScreen() {
     return Array.from(new Set(candidates));
   };
 
+  const resolveDeliveryIndexes = (order: DashboardOrder) => {
+    const raw = [
+      (order as any)?.delivery_index,
+      (order as any)?.current_delivery_index,
+      (order as any)?.next_delivery_index,
+      0,
+    ];
+    const normalized = raw
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value >= 0);
+    return Array.from(new Set(normalized));
+  };
+
+  const nextActions = (status: string) => {
+    switch (String(status || '').toLowerCase()) {
+      case 'pending':
+        return [{ label: 'Accept and Start Preparing', value: 'preparing' }];
+      case 'scheduled':
+        return [{ label: 'Start Preparing', value: 'preparing' }];
+      case 'preparing':
+        return [{ label: 'Mark Out for Delivery', value: 'out_for_delivery' }];
+      default:
+        return [];
+    }
+  };
+
+  const updateOrderStatus = async (order: DashboardOrder, status: string) => {
+    const orderIds = resolveOrderAltIds(order);
+    const deliveryIndexes = resolveDeliveryIndexes(order);
+    if (!orderIds.length) {
+      Alert.alert('Status update failed', 'Order id missing. Please refresh and try again.');
+      return;
+    }
+
+    const key = `${orderIds[0]}-${status}`;
+    try {
+      setUpdatingOrder(key);
+      let updated = false;
+      let lastError: any = null;
+
+      for (const orderId of orderIds) {
+        for (const deliveryIndex of deliveryIndexes) {
+          try {
+            await storeService.updateOrderDeliveryStatus(orderId, {
+              delivery_index: deliveryIndex,
+              status,
+            });
+            updated = true;
+            break;
+          } catch (error: any) {
+            lastError = error;
+          }
+        }
+        if (updated) break;
+      }
+
+      if (!updated) throw lastError || new Error('Unable to update order status');
+
+      if (['preparing', 'accepted', 'assigned'].includes(String(status).toLowerCase())) {
+        await transitionAcceptedOrder(
+          {
+            subscription: order,
+            subscription_id: orderIds[0],
+            status,
+          },
+          dashboard,
+        );
+      }
+
+      await fetchDashboard();
+    } catch (error: any) {
+      Alert.alert(
+        'Status update failed',
+        error?.response?.data?.message || 'Unable to update order status',
+      );
+    } finally {
+      setUpdatingOrder(null);
+    }
+  };
+
   const navigateToOrder = (item: DashboardOrder) => {
     const routeId = resolveOrderRouteId(item);
     const altIds = resolveOrderAltIds(item);
@@ -94,7 +178,10 @@ export default function OrdersScreen() {
   };
 
   const tomorrowCount = useMemo(
-    () => (dashboard?.tomorrow_orders || []).filter((item) => !isHiddenStoreDelivery(item.status, (item as any)?.skipped_by)).length,
+    () =>
+      (dashboard?.tomorrow_orders || []).filter(
+        (item) => !isHiddenStoreDelivery(item.status, (item as any)?.skipped_by),
+      ).length,
     [dashboard?.tomorrow_orders],
   );
 
@@ -138,6 +225,9 @@ export default function OrdersScreen() {
         <LiveOrderActivityBoard
           dashboard={dashboard}
           onOrderPress={navigateToOrder}
+          onQuickAction={updateOrderStatus}
+          updatingOrder={updatingOrder}
+          nextActions={nextActions}
         />
 
         <PendingBulkInquiriesBanner

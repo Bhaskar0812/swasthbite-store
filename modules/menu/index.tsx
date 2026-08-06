@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useStoreStore } from 'store/storeStore';
 import { Colors } from 'constants/theme';
 import type { MenuItem } from 'types';
@@ -395,7 +396,19 @@ export default function MenuScreen() {
   return (
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
       <View className="px-4 pt-2 pb-3">
-        <Text className="text-xl font-bold text-textPrimary mb-3">Menu Management</Text>
+        <View className="flex-row items-center justify-between mb-3">
+          <Text className="text-xl font-bold text-textPrimary">Menu Management</Text>
+          <TouchableOpacity
+            onPress={() => router.push('/catalog-requests' as any)}
+            className="flex-row items-center px-3 py-2 rounded-xl"
+            style={{ backgroundColor: Colors.primary + '15' }}
+          >
+            <Ionicons name="add-circle-outline" size={18} color={Colors.primary} />
+            <Text className="text-sm font-bold ml-1" style={{ color: Colors.primary }}>
+              Request item
+            </Text>
+          </TouchableOpacity>
+        </View>
 
         <View className="flex-row bg-white rounded-xl p-1 mb-3">
           {([

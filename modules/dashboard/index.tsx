@@ -328,6 +328,7 @@ export default function DashboardScreen() {
           {[
             { label: 'Deliveries', icon: 'calendar', route: '/deliveries', color: Colors.info },
             { label: 'Menu Items', icon: 'restaurant', route: '/(tabs)/menu', color: Colors.primary },
+            { label: 'Catalog Request', icon: 'add-circle', route: '/catalog-requests', color: Colors.accent },
             { label: 'Settlements', icon: 'wallet', route: '/(tabs)/finance', color: Colors.success },
             { label: 'Chat', icon: 'chatbubbles', route: '/chat', color: Colors.info },
             { label: 'Promotions', icon: 'pricetag', route: '/promotions', color: Colors.accent },
