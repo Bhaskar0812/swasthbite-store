@@ -402,6 +402,51 @@ export const storeService = {
     const res = await api.post("/store/catalog-requests/menu-items", payload);
     return res.data;
   },
+  uploadImage: async (uri: string, fileName = "catalog.jpg") => {
+    const formData = new FormData();
+    const name = fileName.includes(".") ? fileName : `${fileName}.jpg`;
+    formData.append("image", {
+      uri,
+      name,
+      type: "image/jpeg",
+    } as any);
+    const res = await api.post("/upload/single", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+      timeout: 60000,
+    });
+    return res.data;
+  },
+  getCategories: async () => {
+    const res = await api.get("/categories/admin/all");
+    return res.data;
+  },
+  searchManualOrderUsers: async (q: string, limit = 40) => {
+    const res = await api.get("/admin/manual-order/search-users", {
+      params: { q, limit },
+    });
+    return res.data;
+  },
+  getManualOrderUserAddresses: async (userId: string) => {
+    const res = await api.get(`/admin/manual-order/user/${userId}/addresses`);
+    return res.data;
+  },
+  addManualOrderUserAddress: async (userId: string, payload: Record<string, unknown>) => {
+    const res = await api.post(
+      `/admin/manual-order/user/${userId}/addresses`,
+      payload,
+    );
+    return res.data;
+  },
+  getManualOrderCharges: async (addressId?: string) => {
+    const res = await api.get("/admin/manual-order/charges", {
+      params: addressId ? { address_id: addressId } : undefined,
+    });
+    return res.data;
+  },
+  punchManualOrder: async (payload: Record<string, unknown>) => {
+    const res = await api.post("/admin/manual-order", payload);
+    return res.data;
+  },
   cancelDelivery: async (
     orderId: string,
     payload: { date: string; slot?: string },

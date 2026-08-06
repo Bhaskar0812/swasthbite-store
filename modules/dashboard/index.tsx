@@ -327,6 +327,7 @@ export default function DashboardScreen() {
         <View className="flex-row flex-wrap mb-4">
           {[
             { label: 'Deliveries', icon: 'calendar', route: '/deliveries', color: Colors.info },
+            { label: 'Punch Order', icon: 'create', route: '/punch-order', color: Colors.success },
             { label: 'Menu Items', icon: 'restaurant', route: '/(tabs)/menu', color: Colors.primary },
             { label: 'Catalog Request', icon: 'add-circle', route: '/catalog-requests', color: Colors.accent },
             { label: 'Settlements', icon: 'wallet', route: '/(tabs)/finance', color: Colors.success },

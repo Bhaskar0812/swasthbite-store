@@ -358,6 +358,7 @@ export default function RootLayout() {
         <Stack.Screen name="privacy" />
         <Stack.Screen name="delete-account" />
         <Stack.Screen name="catalog-requests" />
+        <Stack.Screen name="punch-order" />
       </Stack>
       {showSplash && (
         <AnimatedSplash onFinish={() => setShowSplash(false)} />
