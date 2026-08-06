@@ -49,10 +49,10 @@ export default function MissedOrdersBanner({ dashboard, onOrderPress }: Props) {
             <Ionicons name="alert-circle" size={20} color="#fff" />
           </View>
           <View className="ml-3 flex-1">
-            <Text className="text-white text-lg font-extrabold">
+            <Text className="text-white text-xl font-extrabold">
               Missed Deliveries
             </Text>
-            <Text className="text-red-100 text-sm mt-0.5">
+            <Text className="text-red-100 text-base mt-0.5">
               {missedOrders.length} need action — mark delivered, reschedule, or mark rescheduled
             </Text>
           </View>
@@ -72,34 +72,34 @@ export default function MissedOrdersBanner({ dashboard, onOrderPress }: Props) {
               onPress={() => onOrderPress(order)}
               activeOpacity={0.85}
               style={{
-                width: 260,
+                width: 280,
                 borderRadius: 20,
                 borderWidth: 1,
                 borderColor: "#FECACA",
                 backgroundColor: "#FEF2F2",
-                padding: 14,
+                padding: 16,
               }}
             >
-              <Text className="text-xs font-bold text-red-700 uppercase">
+              <Text className="text-sm font-bold text-red-700 uppercase">
                 Missed • {formatSlotLabel(order.slot)}
               </Text>
               <Text
-                className="text-base font-extrabold text-textPrimary mt-1"
+                className="text-lg font-extrabold text-textPrimary mt-1"
                 numberOfLines={2}
               >
                 {getOrderTitle(order)}
               </Text>
-              <Text className="text-sm text-textSecondary mt-1" numberOfLines={1}>
+              <Text className="text-base text-textSecondary mt-1" numberOfLines={1}>
                 {order.user_name || "Customer"}
               </Text>
-              <Text className="text-sm font-semibold mt-2" style={{ color: Colors.error }}>
+              <Text className="text-base font-semibold mt-2" style={{ color: Colors.error }}>
                 {formatDateLabel(order.date)}
               </Text>
               <View className="flex-row items-center mt-3">
-                <Text className="text-sm font-bold" style={{ color: "#B91C1C" }}>
+                <Text className="text-base font-bold" style={{ color: "#B91C1C" }}>
                   Tap to manage
                 </Text>
-                <Ionicons name="chevron-forward" size={16} color="#B91C1C" />
+                <Ionicons name="chevron-forward" size={18} color="#B91C1C" />
               </View>
             </TouchableOpacity>
           );

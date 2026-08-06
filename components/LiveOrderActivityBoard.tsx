@@ -66,13 +66,13 @@ const StatPill = ({
   bg: string;
 }) => (
   <View
-    className="flex-1 rounded-2xl px-2 py-2 mx-0.5"
+    className="flex-1 rounded-2xl px-2 py-2.5 mx-0.5"
     style={{ backgroundColor: bg }}
   >
-    <Text className="text-[10px] font-semibold" style={{ color }}>
+    <Text className="text-xs font-semibold" style={{ color }}>
       {label}
     </Text>
-    <Text className="text-lg font-extrabold mt-0.5" style={{ color }}>
+    <Text className="text-xl font-extrabold mt-0.5" style={{ color }}>
       {value}
     </Text>
   </View>
@@ -140,62 +140,62 @@ const OrderActivityCard = ({
         backgroundColor: cardBg,
         borderWidth: 1.5,
         borderColor: accent + "33",
-        padding: 16,
-        minHeight: 320,
+        padding: 18,
+        minHeight: 360,
       }}
     >
       <View className="flex-row items-center justify-between mb-2">
         <View
-          className="px-2.5 py-1 rounded-full"
+          className="px-3 py-1.5 rounded-full"
           style={{ backgroundColor: accent + "18" }}
         >
-          <Text className="text-[10px] font-extrabold" style={{ color: accent }}>
+          <Text className="text-xs font-extrabold" style={{ color: accent }}>
             Order {index}/{total}
           </Text>
         </View>
         {instant ? (
           <View
-            className="px-2.5 py-1 rounded-full flex-row items-center"
+            className="px-3 py-1.5 rounded-full flex-row items-center"
             style={{ backgroundColor: "#2563EB" }}
           >
-            <Ionicons name="flash" size={11} color="#fff" />
-            <Text className="text-[10px] font-bold text-white ml-1">INSTANT</Text>
+            <Ionicons name="flash" size={14} color="#fff" />
+            <Text className="text-xs font-bold text-white ml-1">INSTANT</Text>
           </View>
         ) : (
-          <View className="px-2.5 py-1 rounded-full" style={{ backgroundColor: "#fff" }}>
-            <Text className="text-[10px] font-bold text-slate-700">
+          <View className="px-3 py-1.5 rounded-full" style={{ backgroundColor: "#fff" }}>
+            <Text className="text-xs font-bold text-slate-700">
               {formatSlotLabel(order.slot)}
             </Text>
           </View>
         )}
       </View>
 
-      <View className="rounded-xl px-3 py-2 mb-2" style={{ backgroundColor: "#fff" }}>
-        <Text className="text-[10px] font-bold text-slate-500 uppercase">
+      <View className="rounded-xl px-3.5 py-2.5 mb-2" style={{ backgroundColor: "#fff" }}>
+        <Text className="text-xs font-bold text-slate-500 uppercase">
           {formatDeliveryDateLabel(order, now, { dayHint })}
         </Text>
-        <Text className="text-sm font-extrabold text-slate-900 mt-0.5">
+        <Text className="text-lg font-extrabold text-slate-900 mt-0.5">
           {instant ? "Deliver ASAP" : `Deliver by ${formatDeliverByTime(order)}`}
         </Text>
         {!instant ? (
-          <Text className="text-[11px] text-slate-500 mt-0.5">
+          <Text className="text-sm text-slate-500 mt-0.5">
             Window: {formatSlotWindow(order.slot)}
           </Text>
         ) : null}
       </View>
 
-      <Text className="text-xs text-slate-500">
+      <Text className="text-base font-semibold text-slate-800">
         #{shortId} • {order.user_name || "Customer"}
       </Text>
       {order.user_phone ? (
-        <Text className="text-[11px] text-slate-400 mt-0.5">{order.user_phone}</Text>
+        <Text className="text-sm text-slate-500 mt-0.5">{order.user_phone}</Text>
       ) : null}
       {(order.delivery_address?.full_address ||
         order.delivery_address?.address ||
         order.address_snapshot?.full_address) ? (
         <View className="flex-row items-start mt-2">
-          <Ionicons name="location-outline" size={12} color="#64748B" style={{ marginTop: 2 }} />
-          <Text className="text-[11px] text-slate-500 ml-1 flex-1" numberOfLines={2}>
+          <Ionicons name="location-outline" size={16} color="#64748B" style={{ marginTop: 2 }} />
+          <Text className="text-sm text-slate-600 ml-1.5 flex-1" numberOfLines={3}>
             {order.delivery_address?.full_address ||
               order.delivery_address?.address ||
               order.address_snapshot?.full_address}
@@ -204,26 +204,26 @@ const OrderActivityCard = ({
       ) : null}
 
       <View
-        className="mt-3 rounded-2xl px-3 py-3"
+        className="mt-3 rounded-2xl px-3.5 py-3.5"
         style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: accent + "22" }}
       >
-        <Text className="text-[10px] font-bold text-slate-500 uppercase mb-2">
+        <Text className="text-xs font-bold text-slate-500 uppercase mb-2">
           Prepare
         </Text>
         {lineItems.map((item, itemIndex) => (
           <View
             key={`${item.name}-${itemIndex}`}
-            className="flex-row items-center justify-between py-1.5"
+            className="flex-row items-center justify-between py-2"
             style={{
               borderBottomWidth: itemIndex < lineItems.length - 1 ? 1 : 0,
               borderBottomColor: "#F1F5F9",
             }}
           >
-            <Text className="text-sm font-semibold text-slate-800 flex-1 mr-2" numberOfLines={2}>
+            <Text className="text-base font-bold text-slate-900 flex-1 mr-2" numberOfLines={3}>
               {item.name}
             </Text>
-            <View className="px-2 py-0.5 rounded-lg" style={{ backgroundColor: accent + "18" }}>
-              <Text className="text-xs font-extrabold" style={{ color: accent }}>
+            <View className="px-2.5 py-1 rounded-lg" style={{ backgroundColor: accent + "18" }}>
+              <Text className="text-sm font-extrabold" style={{ color: accent }}>
                 ×{item.qty}
               </Text>
             </View>
@@ -232,38 +232,38 @@ const OrderActivityCard = ({
       </View>
 
       <View className="flex-row flex-wrap mt-2">
-        <View className="px-2 py-1 rounded-full mr-1.5 mb-1" style={{ backgroundColor: "#fff" }}>
-          <Text className="text-[10px] font-bold text-slate-700">
+        <View className="px-2.5 py-1.5 rounded-full mr-1.5 mb-1" style={{ backgroundColor: "#fff" }}>
+          <Text className="text-xs font-bold text-slate-700">
             {formatStatusLabel(order.status)}
           </Text>
         </View>
       </View>
 
       <View
-        className="mt-2 rounded-2xl px-3 py-3"
+        className="mt-2 rounded-2xl px-3.5 py-3.5"
         style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: accent + "22" }}
       >
-        <Text className="text-[10px] font-semibold text-slate-500 uppercase mb-2">
+        <Text className="text-xs font-semibold text-slate-500 uppercase mb-2">
           {progress.headline}
         </Text>
-        <OrderProgressStepper progress={progress} accent={accent} compact />
+        <OrderProgressStepper progress={progress} accent={accent} />
       </View>
 
       {instant ? (
         <View
-          className="mt-3 rounded-2xl px-3 py-3 items-center"
+          className="mt-3 rounded-2xl px-3 py-3.5 items-center"
           style={{ backgroundColor: "#1D4ED8" }}
         >
-          <Text className="text-[10px] font-semibold text-blue-100 uppercase tracking-widest">
+          <Text className="text-xs font-semibold text-blue-100 uppercase tracking-widest">
             {preparing ? "Prepare & deliver in" : pending ? "Accept within" : "Time left"}
           </Text>
-          <Text className="text-3xl font-black text-white mt-1 tracking-wider">
+          <Text className="text-4xl font-black text-white mt-1 tracking-wider">
             {countdown || "—"}
           </Text>
         </View>
       ) : pending ? (
-        <View className="mt-3 rounded-2xl px-3 py-2 items-center" style={{ backgroundColor: "#FEF3C7" }}>
-          <Text className="text-xs font-bold text-amber-900">Tap card to accept & start preparing</Text>
+        <View className="mt-3 rounded-2xl px-3 py-2.5 items-center" style={{ backgroundColor: "#FEF3C7" }}>
+          <Text className="text-sm font-bold text-amber-900">Tap card to accept & start preparing</Text>
         </View>
       ) : null}
 
@@ -274,14 +274,14 @@ const OrderActivityCard = ({
               key={action.value}
               onPress={() => onQuickAction(order, action.value)}
               disabled={isUpdating}
-              className="flex-1 mx-0.5 px-3 py-2.5 rounded-xl items-center"
+              className="flex-1 mx-0.5 px-3 py-3.5 rounded-xl items-center"
               style={{
                 backgroundColor:
                   action.value === "out_for_delivery" ? "#059669" : "#1D4ED8",
                 opacity: isUpdating ? 0.6 : 1,
               }}
             >
-              <Text className="text-xs font-bold text-white">{action.label}</Text>
+              <Text className="text-sm font-bold text-white">{action.label}</Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -398,8 +398,8 @@ export default function LiveOrderActivityBoard({
               <Ionicons name="restaurant" size={20} color="#fff" />
             </View>
             <View className="ml-3 flex-1">
-              <Text className="text-xs font-semibold text-blue-100">Prep queue</Text>
-              <Text className="text-lg font-extrabold text-white">
+              <Text className="text-sm font-semibold text-blue-100">Prep queue</Text>
+              <Text className="text-xl font-extrabold text-white">
                 {orders.length > 0
                   ? `${orders.length} in ${bucketHeadline.toLowerCase()}`
                   : bucketHeadline}
@@ -422,11 +422,11 @@ export default function LiveOrderActivityBoard({
               <TouchableOpacity
                 key={tab.key}
                 onPress={() => setDayTab(tab.key)}
-                className="flex-1 py-2 rounded-lg items-center"
+                className="flex-1 py-2.5 rounded-lg items-center"
                 style={{ backgroundColor: active ? "#fff" : "transparent" }}
               >
                 <Text
-                  className="text-sm font-extrabold"
+                  className="text-base font-extrabold"
                   style={{ color: active ? "#1D4ED8" : "#E0E7FF" }}
                 >
                   {tab.label} ({countLabel})
@@ -444,17 +444,17 @@ export default function LiveOrderActivityBoard({
               <TouchableOpacity
                 key={bucket.key}
                 onPress={() => setPrepBucket(bucket.key)}
-                className="flex-1 py-2.5 rounded-lg items-center mx-0.5"
+                className="flex-1 py-3 rounded-lg items-center mx-0.5"
                 style={{ backgroundColor: active ? "#fff" : "transparent" }}
               >
                 <Text
-                  className="text-[11px] font-extrabold"
+                  className="text-xs font-extrabold"
                   style={{ color: active ? "#1D4ED8" : "#E0E7FF" }}
                 >
                   {bucket.label}
                 </Text>
                 <Text
-                  className="text-base font-black mt-0.5"
+                  className="text-lg font-black mt-0.5"
                   style={{ color: active ? "#1D4ED8" : "#FFF" }}
                 >
                   {count}
@@ -470,13 +470,13 @@ export default function LiveOrderActivityBoard({
           style={{
             backgroundColor: "#DC2626",
             paddingHorizontal: 16,
-            paddingVertical: 12,
+            paddingVertical: 14,
           }}
         >
           <Text
             style={{
               color: "#FFF",
-              fontSize: 14,
+              fontSize: 16,
               fontWeight: "900",
               textAlign: "center",
             }}
@@ -498,7 +498,7 @@ export default function LiveOrderActivityBoard({
             <TouchableOpacity
               key={slot.key}
               onPress={() => setSlotFilter(slot.key)}
-              className="mr-2 px-3 py-2 rounded-xl"
+              className="mr-2 px-3.5 py-2.5 rounded-xl"
               style={{
                 backgroundColor: active ? "#DBEAFE" : "#F8FAFC",
                 borderWidth: 1,
@@ -506,7 +506,7 @@ export default function LiveOrderActivityBoard({
               }}
             >
               <Text
-                className="text-xs font-bold"
+                className="text-sm font-bold"
                 style={{ color: active ? "#1D4ED8" : "#64748B" }}
               >
                 {slot.icon ? `${slot.icon} ` : ""}
@@ -560,14 +560,14 @@ export default function LiveOrderActivityBoard({
               ))}
             </View>
 
-            <Text className="text-center text-[11px] text-slate-500 mt-2 px-4">
+            <Text className="text-center text-sm text-slate-500 mt-2 px-4">
               Buckets: To prepare → Preparing → Out · Slot chips filter within bucket
             </Text>
           </>
         ) : (
           <View className="px-4 py-8 items-center">
-            <Ionicons name="restaurant-outline" size={36} color="#94A3B8" />
-            <Text className="text-sm text-slate-500 mt-2 text-center">
+            <Ionicons name="restaurant-outline" size={40} color="#94A3B8" />
+            <Text className="text-base text-slate-500 mt-2 text-center">
               {dayTab === "today"
                 ? `Nothing in "${bucketHeadline}" for this filter.`
                 : "No orders scheduled for this bucket tomorrow."}

@@ -106,23 +106,23 @@ export default function OrdersScreen() {
 
       <View className="w-full bg-blue-600 rounded-b-3xl pb-6 pt-8 px-6 mb-4 shadow-md" style={{ elevation: 6 }}>
         <Text className="text-2xl font-extrabold text-white mb-1 tracking-wide">Orders</Text>
-        <Text className="text-base text-blue-100 mb-2">
+        <Text className="text-lg text-blue-100 mb-2">
           Today {todayAllOrders.length} • Tomorrow {tomorrowCount}
           {missedCount > 0 ? ` • Missed ${missedCount}` : ''}
         </Text>
 
         <View className="flex-row mt-2 mb-2">
-          <View className="flex-1 rounded-xl px-3 py-2 mr-1" style={{ backgroundColor: 'rgba(255,255,255,0.18)' }}>
-            <Text className="text-[11px] text-blue-100">Preparing</Text>
-            <Text className="text-lg font-bold text-white">{preparingCount}</Text>
+          <View className="flex-1 rounded-xl px-3 py-2.5 mr-1" style={{ backgroundColor: 'rgba(255,255,255,0.18)' }}>
+            <Text className="text-sm text-blue-100">Preparing</Text>
+            <Text className="text-xl font-bold text-white">{preparingCount}</Text>
           </View>
-          <View className="flex-1 rounded-xl px-3 py-2 mx-1" style={{ backgroundColor: 'rgba(255,255,255,0.18)' }}>
-            <Text className="text-[11px] text-blue-100">Out for delivery</Text>
-            <Text className="text-lg font-bold text-white">{outForDeliveryCount}</Text>
+          <View className="flex-1 rounded-xl px-3 py-2.5 mx-1" style={{ backgroundColor: 'rgba(255,255,255,0.18)' }}>
+            <Text className="text-sm text-blue-100">Out for delivery</Text>
+            <Text className="text-xl font-bold text-white">{outForDeliveryCount}</Text>
           </View>
-          <View className="flex-1 rounded-xl px-3 py-2 ml-1" style={{ backgroundColor: 'rgba(255,255,255,0.18)' }}>
-            <Text className="text-[11px] text-blue-100">Delivered today</Text>
-            <Text className="text-lg font-bold text-white">{deliveredTodayCount}</Text>
+          <View className="flex-1 rounded-xl px-3 py-2.5 ml-1" style={{ backgroundColor: 'rgba(255,255,255,0.18)' }}>
+            <Text className="text-sm text-blue-100">Delivered today</Text>
+            <Text className="text-xl font-bold text-white">{deliveredTodayCount}</Text>
           </View>
         </View>
       </View>

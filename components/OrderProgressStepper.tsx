@@ -68,7 +68,7 @@ export default function OrderProgressStepper({
                 numberOfLines={1}
                 style={{
                   marginTop: 6,
-                  fontSize: compact ? 9 : 10,
+                  fontSize: compact ? 11 : 12,
                   fontWeight: isActive || isComplete ? "800" : "600",
                   color: isActive || isComplete ? activeLabelColor : labelColor,
                   textAlign: "center",
